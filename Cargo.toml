@@ -1,6 +1,6 @@
 [package]
 name = "gtube"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "A native GTK4 YouTube client with SponsorBlock, Return YouTube Dislike and downloads"
 license = "GPL-3.0-or-later"
