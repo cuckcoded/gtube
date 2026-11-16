@@ -1,0 +1,148 @@
+name: Build
+
+# Builds GTube for Linux (AppImage), Windows (installer .exe and a portable
+# .zip) and macOS (app bundle, Apple Silicon). Every run keeps the packages
+# as artifacts; pushing a tag like v0.2.0 also publishes them as a release.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The packages have no WebKit sign-in window (WebKitGTK can't be bundled
+  # sensibly); signing in works by importing from a browser or a cookies.txt.
+  FEATURES: --no-default-features
+
+jobs:
+  linux:
+    name: Linux (AppImage)
+    runs-on: ubuntu-latest
+    # The oldest distribution with GTK >= 4.16 and libadwaita >= 1.7: the
+    # AppImage runs where its glibc (2.41) or a newer one is.
+    container: debian:trixie
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential ca-certificates curl git file unzip pkg-config \
+            libgtk-4-dev libadwaita-1-dev libmpv-dev libssl-dev \
+            librsvg2-common adwaita-icon-theme desktop-file-utils
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --locked $FEATURES
+      - name: Build
+        run: cargo build --release --locked $FEATURES
+      - name: Package
+        run: packaging/linux/appimage.sh
+      - name: Smoke test
+        run: build/GTube-x86_64.AppImage --appimage-extract-and-run --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GTube-linux-x86_64
+          path: build/GTube-x86_64.AppImage
+          if-no-files-found: error
+
+  macos:
+    name: macOS (app bundle)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install build dependencies
+        run: brew install --quiet gtk4 libadwaita mpv adwaita-icon-theme librsvg dylibbundler pkgconf
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --locked $FEATURES
+      - name: Build
+        run: cargo build --release --locked $FEATURES
+      - name: Package
+        run: packaging/macos/bundle.sh
+      - name: Smoke test
+        # Loads every bundled library; Homebrew's copies are hidden first.
+        run: |
+          brew unlink gtk4 libadwaita mpv
+          build/GTube.app/Contents/MacOS/gtube --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GTube-macos-arm64
+          path: build/GTube-macos-arm64.zip
+          if-no-files-found: error
+
+  windows:
+    name: Windows (installer and zip)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git unzip zip
+          pacboy: >-
+            rust:p gcc:p pkgconf:p gtk4:p libadwaita:p mpv:p
+            adwaita-icon-theme:p librsvg:p imagemagick:p
+      - name: Test
+        run: cargo test --locked $FEATURES
+      - name: Build
+        run: cargo build --release --locked $FEATURES
+      - name: Package
+        run: packaging/windows/package.sh
+      - name: Smoke test
+        # With MSYS2 off the PATH, every DLL must come from the package.
+        run: env PATH=/usr/bin build/GTube/bin/gtube.exe --version
+      - name: Installer
+        shell: pwsh
+        run: |
+          $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe", "$env:ProgramFiles\Inno Setup *\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress
+            $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe", "$env:ProgramFiles\Inno Setup *\ISCC.exe" | Select-Object -First 1
+          }
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
+          & $iscc.FullName "/DAppVersion=$version" packaging\windows\gtube.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GTube-windows-x86_64
+          path: |
+            build/GTube-setup-x86_64.exe
+            build/GTube-windows-x86_64.zip
+          if-no-files-found: error
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

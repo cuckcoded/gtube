@@ -1,0 +1,473 @@
+/* Cards */
+.thumb {
+  border-radius: 12px;
+  background-color: alpha(currentColor, 0.08);
+}
+.stacked .thumb {
+  box-shadow: 0 -5px 0 -2px alpha(currentColor, 0.18), 0 -10px 0 -5px alpha(currentColor, 0.1);
+}
+.badge {
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.8em;
+  font-weight: 600;
+}
+.badge.live {
+  background-color: #cc0000;
+}
+.watch-progress trough,
+.watch-progress progress {
+  min-height: 4px;
+  border-radius: 0;
+}
+.watch-progress trough {
+  background-color: rgba(255, 255, 255, 0.35);
+}
+.watch-progress progress {
+  background-color: #ff0033;
+}
+.card-title {
+  font-weight: 600;
+}
+.card-sub {
+  font-size: 0.9em;
+}
+flowboxchild.card-child {
+  padding: 6px;
+  border-radius: 16px;
+}
+flowboxchild.card-child:hover {
+  background-color: alpha(currentColor, 0.05);
+}
+.feed-list {
+  background: none;
+}
+.feed-list > row {
+  border-radius: 12px;
+  padding: 6px;
+  margin-bottom: 2px;
+}
+.feed-list > row.now-playing {
+  background-color: alpha(@accent_bg_color, 0.18);
+}
+.chip {
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-weight: 600;
+}
+.chip:checked {
+  background-color: @window_fg_color;
+  color: @window_bg_color;
+}
+
+/* Player */
+.video-placeholder {
+  background-color: black;
+  border-radius: 12px;
+}
+.player {
+  background-color: black;
+}
+.player-host.docked .player {
+  border-radius: 12px;
+}
+.player-host.mini .player {
+  border-radius: 10px;
+}
+.player-host.mini {
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+  border-radius: 10px;
+}
+.player-bar {
+  background-image: linear-gradient(to top, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0));
+  color: white;
+  padding-top: 28px;
+}
+.player-bar button,
+.player-bar menubutton > button,
+.player-bar label,
+.player-bar image {
+  color: white;
+}
+.player-bar scale trough {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+.player-bar scale highlight {
+  background-color: white;
+}
+.player-top {
+  background-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0));
+  padding: 16px 24px 36px 24px;
+}
+.player-title {
+  color: white;
+  font-size: 1.3em;
+  font-weight: 600;
+}
+.audio-cover {
+  background-color: black;
+}
+.cover-label {
+  color: white;
+  margin-bottom: 18px;
+  opacity: 0.8;
+}
+.player-wait {
+  color: white;
+  background-color: rgba(0, 0, 0, 0.72);
+  border-radius: 12px;
+  padding: 10px 16px;
+}
+.player-wait .caption {
+  opacity: 0.8;
+}
+.player-error {
+  color: white;
+  background-color: rgba(0, 0, 0, 0.7);
+  border-radius: 12px;
+  padding: 18px;
+}
+.sb-notice {
+  background-color: rgba(18, 18, 18, 0.92);
+  color: white;
+  border-radius: 10px;
+  padding: 4px 4px 4px 12px;
+}
+.sb-notice button {
+  color: #3ea6ff;
+}
+.highlight-btn label {
+  color: #ff5fa2;
+}
+.mini-controls {
+  background-color: rgba(0, 0, 0, 0.35);
+  transition: opacity 200ms ease;
+}
+.mini-play {
+  min-width: 52px;
+  min-height: 52px;
+}
+.mini-progress trough,
+.mini-progress progress {
+  min-height: 3px;
+  border-radius: 0;
+}
+.mini-progress progress {
+  background-color: @accent_bg_color;
+}
+
+/* Watch page */
+.description-card,
+.queue-card {
+  background-color: alpha(currentColor, 0.06);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.queue-list {
+  background: none;
+}
+.queue-list > row {
+  border-radius: 10px;
+  padding: 0;
+  margin-bottom: 2px;
+}
+.queue-row {
+  padding: 5px 6px 5px 2px;
+  border-radius: 10px;
+}
+.queue-row.now-playing {
+  background-color: alpha(@accent_bg_color, 0.18);
+}
+.queue-title {
+  font-weight: 600;
+  font-size: 0.92em;
+}
+.channel-button {
+  padding: 4px 10px 4px 4px;
+  border-radius: 999px;
+}
+flowboxchild.plain-child {
+  padding: 0;
+  background: none;
+}
+.ratio-bar trough,
+.ratio-bar block {
+  min-height: 3px;
+  border-radius: 2px;
+}
+.ratio-bar block.filled {
+  background-color: alpha(currentColor, 0.7);
+}
+.ratio-bar block.empty {
+  background-color: alpha(currentColor, 0.15);
+}
+.comment-author {
+  font-weight: 600;
+  font-size: 0.95em;
+}
+.comment-author.creator {
+  background-color: alpha(currentColor, 0.14);
+  border-radius: 10px;
+  padding: 0 7px;
+}
+.heart {
+  color: #e62117;
+}
+.replies-btn {
+  color: @accent_color;
+  font-weight: 600;
+  padding: 2px 8px;
+}
+
+/* Channel / playlist */
+.banner {
+  border-radius: 14px;
+}
+.playlist-header {
+  margin-bottom: 8px;
+}
+
+/* Misc */
+.logo {
+  color: #ff0033;
+}
+.download-row {
+  padding: 12px 14px;
+}
+.download-row.failed label.caption {
+  color: @error_color;
+}
+.separator-row {
+  min-height: 0;
+  padding: 4px 0;
+}
+.sb-dot {
+  border-radius: 6px;
+}
+
+/* Music */
+.mode-switch button {
+  padding: 4px 6px;
+}
+.music-art {
+  border-radius: 6px;
+  background-color: alpha(currentColor, 0.08);
+}
+.music-art.round {
+  border-radius: 9999px;
+}
+.music-list {
+  background: none;
+}
+.music-list > row.music-row {
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+.music-list > row.music-row:hover {
+  background-color: alpha(currentColor, 0.06);
+}
+.music-list > row.now-playing {
+  background-color: alpha(@accent_bg_color, 0.2);
+}
+.track-title {
+  font-weight: 600;
+}
+.music-links link,
+.music-links link:visited {
+  color: inherit;
+  text-decoration-line: none;
+}
+.music-links link:hover {
+  text-decoration-line: underline;
+}
+.explicit {
+  background-color: alpha(currentColor, 0.18);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 0.7em;
+  font-weight: 700;
+}
+.shelf-title {
+  font-size: 1.45em;
+  font-weight: 800;
+}
+.strapline {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.small-pill {
+  padding: 4px 14px;
+  min-height: 0;
+}
+.music-pill {
+  padding: 8px 20px;
+}
+.music-pill.subscribe {
+  background-color: @window_fg_color;
+  color: @window_bg_color;
+}
+button.music-tile {
+  padding: 6px;
+  border-radius: 12px;
+}
+.tile-title {
+  font-weight: 600;
+}
+.tile-play {
+  background-color: rgba(0, 0, 0, 0.72);
+  color: white;
+  border-radius: 9999px;
+  padding: 10px;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+button.music-tile:hover .tile-play,
+button.music-tile:focus-visible .tile-play {
+  opacity: 1;
+}
+button.mood-tile {
+  border-left: 6px solid alpha(currentColor, 0.3);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background-color: alpha(currentColor, 0.07);
+}
+button.mood-tile:hover {
+  background-color: alpha(currentColor, 0.12);
+}
+.mood-title {
+  font-weight: 600;
+}
+.top-result {
+  background-color: alpha(currentColor, 0.06);
+  border-radius: 14px;
+  padding: 16px;
+}
+button.top-result-button {
+  padding: 0;
+  border-radius: 14px;
+}
+.artist-banner {
+  border-radius: 14px;
+}
+.artist-shade {
+  background-image: linear-gradient(to top, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0));
+  border-radius: 0 0 14px 14px;
+  padding: 48px 28px 22px 28px;
+}
+.artist-title {
+  color: white;
+  font-size: 3em;
+  font-weight: 800;
+}
+.artist-sub {
+  color: rgba(255, 255, 255, 0.85);
+}
+.music-bar {
+  padding-top: 0;
+  transition: background-color 600ms ease-out;
+}
+.music-bar-row {
+  min-height: 76px;
+  padding: 2px 10px 8px 10px;
+}
+.music-seek {
+  min-height: 14px;
+  margin-top: -6px;
+}
+.music-visualizer {
+  color: @accent_bg_color;
+}
+.music-play image {
+  -gtk-icon-size: 26px;
+}
+button.music-play {
+  min-width: 52px;
+  min-height: 52px;
+  background-color: @window_fg_color;
+  color: @window_bg_color;
+}
+button.music-play:hover {
+  background-color: alpha(@window_fg_color, 0.85);
+}
+button.music-play:active {
+  background-color: alpha(@window_fg_color, 0.7);
+}
+button.music-skip {
+  min-width: 40px;
+  min-height: 40px;
+}
+button.music-skip image {
+  -gtk-icon-size: 20px;
+}
+.now-art {
+  border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+.lyrics {
+  font-size: 1.25em;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.music .logo {
+  color: #ff0033;
+}
+
+/* Compact player: the window is just the player */
+window.compact .player-host,
+window.compact .player {
+  border-radius: 0;
+}
+
+/* Music: immersive view */
+.immersive {
+  background-color: #0b0b0f;
+  color: white;
+}
+.immersive-backdrop {
+  opacity: 0.55;
+}
+.immersive-shade {
+  background-image: radial-gradient(ellipse at 50% 35%, alpha(#000, 0.05), alpha(#000, 0.6) 75%);
+}
+.immersive-art {
+  border-radius: 14px;
+  box-shadow: 0 18px 60px alpha(black, 0.55);
+}
+.immersive-title {
+  font-size: 1.9em;
+  font-weight: 800;
+  margin-top: 14px;
+}
+.immersive-byline {
+  font-size: 1.15em;
+  opacity: 0.75;
+  margin-bottom: 10px;
+}
+.immersive-next {
+  opacity: 0.7;
+}
+.immersive .music-visualizer {
+  color: alpha(white, 0.9);
+}
+.immersive button.immersive-play {
+  min-width: 68px;
+  min-height: 68px;
+  background-color: white;
+  color: black;
+}
+.immersive button.immersive-play:hover {
+  background-color: alpha(white, 0.88);
+}
+.immersive button.immersive-skip {
+  min-width: 48px;
+  min-height: 48px;
+  color: white;
+}
+.immersive button.immersive-skip image {
+  -gtk-icon-size: 24px;
+}
+.immersive .dim-label {
+  color: alpha(white, 0.7);
+}

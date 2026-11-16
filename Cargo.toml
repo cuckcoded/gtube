@@ -1,0 +1,37 @@
+[package]
+name = "gtube"
+version = "0.1.0"
+edition = "2024"
+description = "A native GTK4 YouTube client with SponsorBlock, Return YouTube Dislike and downloads"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+gtk = { package = "gtk4", version = "0.11", features = ["v4_16"] }
+adw = { package = "libadwaita", version = "0.9", features = ["v1_7"] }
+webkit = { package = "webkit6", version = "0.6", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "process"] }
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "json", "gzip", "brotli", "http2", "charset"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha1 = "0.10"
+sha2 = "0.10"
+hex = "0.4"
+anyhow = "1"
+async-channel = "2"
+libloading = "0.8"
+regex = "1"
+url = "2"
+dirs = "6"
+urlencoding = "2"
+base64 = "0.22"
+libc = "0.2"
+
+[build-dependencies]
+glib-build-tools = "0.22"
+pkg-config = "0.3"
+
+[features]
+default = ["webkit"]
+
+[profile.release]
+lto = "thin"

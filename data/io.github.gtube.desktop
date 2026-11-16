@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=GTube
+Comment=Watch YouTube with SponsorBlock, Return YouTube Dislike and downloads
+Exec=gtube %u
+Icon=io.github.gtube
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;Player;GTK;
+Keywords=youtube;video;sponsorblock;
+StartupNotify=true

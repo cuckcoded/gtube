@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/io/github/gtube">
+    <file compressed="true">style.css</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/gtube-like-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/gtube-dislike-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/gtube-miniplayer-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/gtube-compact-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/gtube-uncompact-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/gtube-subscriptions-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/gtube-shield-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/gtube-logo-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/gtube-explore-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/gtube-library-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/gtube-music-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/gtube-mix-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/apps/io.github.gtube.svg</file>
+  </gresource>
+</gresources>
