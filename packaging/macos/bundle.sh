@@ -93,6 +93,10 @@ for f in "$PIX"/loaders/*; do loader_args+=(-x "$f"); done
 # (stdin closed: dylibbundler asks on the terminal when it can't find a library)
 dylibbundler -of -b -x "$C/MacOS/gtube" "${loader_args[@]}" -d "$C/Frameworks" -p @executable_path/../Frameworks/ \
     -s "$BREW/lib" </dev/null
+# A .dylib loader still carries its Homebrew path as its own name.
+for f in "$PIX"/loaders/*.dylib; do
+    if [ -e "$f" ]; then install_name_tool -id "@loader_path/$(basename "$f")" "$f"; fi
+done
 if otool -L "$C/MacOS/gtube" "$C"/Frameworks/*.dylib "$PIX"/loaders/* | grep -E "^[[:space:]]+($BREW|/usr/local/(opt|Cellar))"; then
     echo "libraries still point into Homebrew" >&2
     exit 1
