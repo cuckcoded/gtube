@@ -99,7 +99,9 @@ unsafe extern "C" {
     fn mpv_render_context_free(ctx: *mut mpv_render_context);
 }
 
-// libgtk-4 exports both backends' accessors; we only call the matching one.
+// libgtk-4 exports both backends' accessors on Linux (only there); we
+// only call the matching one.
+#[cfg(not(any(windows, target_os = "macos")))]
 unsafe extern "C" {
     fn gdk_wayland_display_get_wl_display(display: *mut c_void) -> *mut c_void;
     fn gdk_x11_display_get_xdisplay(display: *mut c_void) -> *mut c_void;
@@ -195,6 +197,28 @@ unsafe extern "C" fn notify_cb(data: *mut c_void) {
     let _ = tx.try_send(());
 }
 
+/// The X11 or Wayland display, which lets mpv use zero-copy hardware decoding.
+#[cfg(not(any(windows, target_os = "macos")))]
+fn native_display(display: &gtk::gdk::Display) -> Option<mpv_render_param> {
+    use gtk::glib::translate::ToGlibPtr;
+    let raw: *mut gtk::gdk::ffi::GdkDisplay = display.to_glib_none().0;
+    let type_name = gtk::prelude::ObjectExt::type_(display).name();
+    let (type_, data) = unsafe {
+        match type_name {
+            "GdkWaylandDisplay" => (RENDER_PARAM_WL_DISPLAY, gdk_wayland_display_get_wl_display(raw as *mut c_void)),
+            "GdkX11Display" => (RENDER_PARAM_X11_DISPLAY, gdk_x11_display_get_xdisplay(raw as *mut c_void)),
+            _ => return None,
+        }
+    };
+    (!data.is_null()).then_some(mpv_render_param { type_, data })
+}
+
+/// Windows and macOS: mpv needs no display handle there.
+#[cfg(any(windows, target_os = "macos"))]
+fn native_display(_: &gtk::gdk::Display) -> Option<mpv_render_param> {
+    None
+}
+
 impl Mpv {
     /// Creates the player. The returned receivers fire when mpv has events
     /// queued and when a new video frame should be drawn, respectively.
@@ -234,7 +258,6 @@ impl Mpv {
 
     /// Must be called with the GtkGLArea's context current.
     pub fn create_render_context(&self, display: &gtk::gdk::Display) -> Result<(), String> {
-        use gtk::glib::translate::ToGlibPtr;
         if self.has_render_context() {
             return Ok(());
         }
@@ -245,22 +268,7 @@ impl Mpv {
             mpv_render_param { type_: RENDER_PARAM_API_TYPE, data: api.as_ptr() as *mut c_void },
             mpv_render_param { type_: RENDER_PARAM_OPENGL_INIT_PARAMS, data: &mut init as *mut _ as *mut c_void },
         ];
-        // Passing the native display lets mpv use zero-copy hardware decoding.
-        let raw: *mut gtk::gdk::ffi::GdkDisplay = display.to_glib_none().0;
-        let type_name = gtk::prelude::ObjectExt::type_(display).name();
-        unsafe {
-            if type_name == "GdkWaylandDisplay" {
-                let wl = gdk_wayland_display_get_wl_display(raw as *mut c_void);
-                if !wl.is_null() {
-                    params.push(mpv_render_param { type_: RENDER_PARAM_WL_DISPLAY, data: wl });
-                }
-            } else if type_name == "GdkX11Display" {
-                let x = gdk_x11_display_get_xdisplay(raw as *mut c_void);
-                if !x.is_null() {
-                    params.push(mpv_render_param { type_: RENDER_PARAM_X11_DISPLAY, data: x });
-                }
-            }
-        }
+        params.extend(native_display(display));
         params.push(mpv_render_param { type_: RENDER_PARAM_INVALID, data: ptr::null_mut() });
         let mut ctx = ptr::null_mut();
         let r = unsafe { mpv_render_context_create(&mut ctx, self.handle, params.as_mut_ptr()) };
