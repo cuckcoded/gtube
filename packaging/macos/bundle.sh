@@ -70,9 +70,11 @@ done
 originals=()
 for dir in "$BREW/lib/gdk-pixbuf-2.0/2.10.0/loaders" "$(brew --prefix librsvg)/lib/gdk-pixbuf-2.0/2.10.0/loaders"; do
     [ -d "$dir" ] || continue
-    for f in "$dir"/*.so; do
+    for f in "$dir"/*.so "$dir"/*.dylib; do
         [ -e "$f" ] || continue
-        name=$(basename "$f")
+        # Named like the real file (librsvg's .so is a link to a .dylib), as
+        # gdk-pixbuf-query-loaders lists it.
+        name=$(basename "$(realpath "$f")")
         [ -e "$PIX/loaders/$name" ] && continue # the same loader, linked into both places
         cp -L "$f" "$PIX/loaders/$name"
         chmod u+w "$PIX/loaders/$name"
@@ -81,17 +83,17 @@ for dir in "$BREW/lib/gdk-pixbuf-2.0/2.10.0/loaders" "$(brew --prefix librsvg)/l
 done
 [ ${#originals[@]} -gt 0 ] || { echo "no image loaders found" >&2; exit 1; }
 gdk-pixbuf-query-loaders "${originals[@]}" \
-    | sed -E 's#^"[^"]*/([^/"]+\.so)"#"@RESOURCES@/lib/gdk-pixbuf-2.0/2.10.0/loaders/\1"#' > "$PIX/loaders.cache.in"
-grep -q '"@RESOURCES@/lib/gdk-pixbuf-2.0/2.10.0/loaders/[^"]*svg[^"]*\.so"' "$PIX/loaders.cache.in" \
+    | sed -E 's#^"[^"]*/([^/"]+\.(so|dylib))"#"@RESOURCES@/lib/gdk-pixbuf-2.0/2.10.0/loaders/\1"#' > "$PIX/loaders.cache.in"
+grep -qE '"@RESOURCES@/lib/gdk-pixbuf-2.0/2.10.0/loaders/[^"]*svg[^"]*\.(so|dylib)"' "$PIX/loaders.cache.in" \
     || { cat "$PIX/loaders.cache.in"; echo "the SVG image loader is missing" >&2; exit 1; }
 
 # Every Homebrew library the program and the loaders use, into Frameworks.
 loader_args=()
-for f in "$PIX"/loaders/*.so; do loader_args+=(-x "$f"); done
+for f in "$PIX"/loaders/*; do loader_args+=(-x "$f"); done
 # (stdin closed: dylibbundler asks on the terminal when it can't find a library)
 dylibbundler -of -b -x "$C/MacOS/gtube" "${loader_args[@]}" -d "$C/Frameworks" -p @executable_path/../Frameworks/ \
     -s "$BREW/lib" </dev/null
-if otool -L "$C/MacOS/gtube" "$C"/Frameworks/*.dylib "$PIX"/loaders/*.so | grep -E "^[[:space:]]+($BREW|/usr/local/(opt|Cellar))"; then
+if otool -L "$C/MacOS/gtube" "$C"/Frameworks/*.dylib "$PIX"/loaders/* | grep -E "^[[:space:]]+($BREW|/usr/local/(opt|Cellar))"; then
     echo "libraries still point into Homebrew" >&2
     exit 1
 fi
@@ -100,7 +102,7 @@ packaging/fetch-tools.sh macos "$C/MacOS"
 
 # dylibbundler's edits invalidate signatures; Apple Silicon won't load
 # unsigned code, so sign what was changed (ad hoc).
-codesign --force --sign - "$C"/Frameworks/*.dylib "$PIX"/loaders/*.so
+codesign --force --sign - "$C"/Frameworks/*.dylib "$PIX"/loaders/*
 codesign --force --sign - "$C/MacOS/gtube"
 
 rm -f "$BUILD/GTube-macos-arm64.zip"
