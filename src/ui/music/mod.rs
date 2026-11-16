@@ -5,6 +5,7 @@
 mod ambient;
 mod bar;
 mod immersive;
+mod lyrics;
 mod now_playing;
 mod page;
 mod queue;
@@ -115,6 +116,7 @@ pub struct MusicShell {
     pub bar: Rc<bar::PlayerBar>,
     pub now: Rc<now_playing::NowPlaying>,
     pub immersive: Rc<immersive::Immersive>,
+    lyrics: Rc<lyrics::LyricsSource>,
     pub ambient: Rc<ambient::Ambient>,
     selecting: Cell<bool>,
     active: Cell<bool>,
@@ -131,6 +133,9 @@ impl MusicShell {
         // goes to the immersive view.
         let immersive = immersive::Immersive::new(&queue);
         player.add_dock(&immersive.dock);
+        let lyrics = lyrics::LyricsSource::new();
+        lyrics.add_view(&now.lyrics);
+        lyrics.add_view(&immersive.lyrics);
 
         // --- Pages
         let root_page = |title: &str, tag: &str, view: &Rc<PageView>| {
@@ -358,6 +363,7 @@ impl MusicShell {
             bar,
             now,
             immersive,
+            lyrics,
             ambient,
             selecting: Cell::new(false),
             active: Cell::new(false),
@@ -462,6 +468,7 @@ impl MusicShell {
             match c {
                 Change::Queue => {
                     s.now.update_queue(&s.queue);
+                    s.immersive.update_queue(&s.queue);
                     s.update_track();
                 }
                 Change::Loading => {
@@ -470,11 +477,14 @@ impl MusicShell {
                 }
                 Change::Current => {
                     s.now.update_current(&s.queue);
+                    s.immersive.update_current(&s.queue);
                     s.update_track();
+                    s.update_lyrics();
                 }
                 Change::Info => {
                     s.bar.update_info(&s.queue.info());
                     s.now.load_tab(&s.queue);
+                    s.update_lyrics();
                 }
                 Change::Modes => s.bar.update_modes(&s.queue),
             }
@@ -704,6 +714,7 @@ impl MusicShell {
         let tr = if on { gtk::StackTransitionType::SlideUp } else { gtk::StackTransitionType::SlideDown };
         self.content.set_visible_child_full(if on { "now" } else { "browse" }, tr);
         self.now.set_visible(on, &self.queue);
+        self.update_lyrics();
         self.bar.set_now_open(on);
         if on {
             self.toolbar.add_css_class("now-open");
@@ -745,7 +756,10 @@ impl MusicShell {
             self.last_item.replace(current);
             self.update_track();
             self.now.update_current(&self.queue);
+            self.immersive.update_current(&self.queue);
+            self.update_lyrics();
         }
+        self.lyrics.set_position(p.position());
         if p.is_music_owned() && p.duration() > 0.0 && !p.is_loading() {
             self.queue.playing_ok();
         }
@@ -757,7 +771,8 @@ impl MusicShell {
         if on == self.immersive.active.get() || (on && c.player.current().is_none()) {
             return;
         }
-        self.immersive.set_active(on);
+        self.immersive.set_active(on, &self.queue);
+        self.update_lyrics();
         c.player.set_immersive(on);
         if on {
             self.immersive.update_track(&self.queue);
@@ -773,6 +788,20 @@ impl MusicShell {
 
     pub fn is_immersive(&self) -> bool {
         self.immersive.active.get()
+    }
+
+    /// Loads the lyrics of the track that is playing when they are on
+    /// screen ("Now playing"'s tab or the immersive view's panel).
+    pub fn update_lyrics(self: &Rc<Self>) {
+        if self.now.lyrics_shown() || self.immersive.lyrics_shown() {
+            self.lyrics.load(&self.queue);
+        }
+    }
+
+    /// The lyrics settings changed: look again.
+    pub fn lyrics_source_changed(self: &Rc<Self>) {
+        self.lyrics.reset();
+        self.update_lyrics();
     }
 
     fn update_track(&self) {

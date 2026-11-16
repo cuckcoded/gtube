@@ -153,6 +153,15 @@ pub fn show() {
         config::update(|c| c.music_visualizer = v);
         super::ctx().music.appearance_changed();
     }));
+    mg.add(&switch(
+        "Synced lyrics from LRCLIB",
+        "When YouTube Music has no timed lyrics for a song, look for them on lrclib.net (sends the song's title and artist)",
+        s.lyrics_lrclib,
+        |v| {
+            config::update(|c| c.lyrics_lrclib = v);
+            super::ctx().music.lyrics_source_changed();
+        },
+    ));
     playback.add(&mg);
     dialog.add(&playback);
 

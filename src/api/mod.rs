@@ -7,6 +7,7 @@
 
 pub mod cookies;
 pub mod extras;
+pub mod lyrics;
 pub mod models;
 pub mod music;
 pub mod parse;

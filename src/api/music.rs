@@ -283,11 +283,7 @@ pub struct Queue {
     pub like_status: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Lyrics {
-    pub text: String,
-    pub source: Option<String>,
-}
+pub use super::lyrics::Lyrics;
 
 #[derive(Clone, Debug)]
 pub enum Suggestion {
@@ -1178,7 +1174,7 @@ pub fn parse_lyrics(v: &Value) -> Option<Lyrics> {
                 if let Some(d) = m.get("musicDescriptionShelfRenderer")
                     && let Some(body) = nonempty(text(d.get("description")))
                 {
-                    *out = Some(Lyrics { text: body, source: nonempty(text(d.get("footer"))) });
+                    *out = Some(Lyrics::plain(body, nonempty(text(d.get("footer")))));
                     return;
                 }
                 for x in m.values() {

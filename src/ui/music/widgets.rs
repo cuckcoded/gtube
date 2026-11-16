@@ -105,7 +105,8 @@ pub fn art(url: Option<&str>, size: i32, shape: Shape) -> AspectBin {
     pic.set_content_fit(gtk::ContentFit::Cover);
     pic.set_can_shrink(true);
     if let Some(u) = url {
-        images::picture(&pic, &m::image_url(u, (size * 2).clamp(120, 1200) as u32));
+        // (Room to spare: tiles grow on big screens.)
+        images::picture(&pic, &m::image_url(u, (size * 3).clamp(120, 1200) as u32));
     }
     bin.set_child(Some(&pic));
     bin.set_valign(gtk::Align::Start);
@@ -503,7 +504,9 @@ const WIDE_TILE: i32 = 300;
 pub fn card_tile(c: &Card) -> gtk::Widget {
     let size = if c.shape == Shape::Wide { WIDE_TILE } else { TILE };
     let overlay = gtk::Overlay::new();
-    overlay.set_child(Some(&art(c.thumbnail.as_deref(), size, c.shape)));
+    let a = art(c.thumbnail.as_deref(), size, c.shape);
+    a.add_css_class(if c.shape == Shape::Wide { "wide-tile-art" } else { "tile-art" });
+    overlay.set_child(Some(&a));
     if let Some(p) = c.play.clone() {
         overlay.add_overlay(&play_overlay(p));
     }
@@ -682,10 +685,14 @@ fn shelf_header(s: &Shelf, scroller: Option<&gtk::ScrolledWindow>) -> Option<gtk
 /// Columns of up to four rows (quick picks, mood carousels).
 fn columns(entries: &[Entry], width: i32, rows: usize, tiles: bool) -> gtk::Box {
     let b = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+    // Track columns that all fit (big screens) would otherwise each take
+    // their own natural width, which depends on how long their titles are.
+    b.set_homogeneous(!tiles);
     for chunk in entries.chunks(rows) {
         if tiles {
             let col = gtk::Box::new(gtk::Orientation::Vertical, 8);
             col.set_size_request(width, -1);
+            col.add_css_class("tile-column");
             col.set_valign(gtk::Align::Start);
             for e in chunk {
                 col.append(&entry_tile(e));
@@ -694,6 +701,7 @@ fn columns(entries: &[Entry], width: i32, rows: usize, tiles: bool) -> gtk::Box 
         } else {
             let list = EntryList::new();
             list.list.set_size_request(width, -1);
+            list.list.add_css_class("track-column");
             list.list.set_valign(gtk::Align::Start);
             for e in chunk {
                 list.append(e);

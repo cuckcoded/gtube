@@ -114,6 +114,7 @@ pub fn video_card(v: &VideoItem, layout: Layout) -> gtk::Widget {
         }
         Layout::List => {
             thumb.set_size_request(168, -1);
+            thumb.add_css_class("list-thumb");
             thumb.set_valign(gtk::Align::Start);
             let card = gtk::Box::new(gtk::Orientation::Horizontal, 10);
             card.append(&thumb);
@@ -190,6 +191,7 @@ pub fn playlist_card(p: &PlaylistItem, layout: Layout) -> gtk::Widget {
         b
     } else {
         thumb.set_size_request(168, -1);
+        thumb.add_css_class("list-thumb");
         thumb.set_valign(gtk::Align::Start);
         let b = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         b.append(&thumb);

@@ -76,6 +76,16 @@ impl PageView {
         let clamp = adw::Clamp::builder().maximum_size(1500).tightening_threshold(1200).child(&body).build();
         let scroller = crate::ui::widgets::scrolled(&clamp);
         scroller.set_vexpand(true);
+        // Big screens: wider pages with bigger tiles (see style.css).
+        let content = adw::BreakpointBin::builder().width_request(200).height_request(200).child(&scroller).build();
+        let wide = adw::Breakpoint::new(adw::BreakpointCondition::parse("min-width: 1900sp").unwrap());
+        wide.add_setter(&clamp, "maximum-size", Some(&2300.to_value()));
+        wide.add_setter(&clamp, "tightening-threshold", Some(&1900.to_value()));
+        let b = body.clone();
+        wide.connect_apply(move |_| b.add_css_class("wide"));
+        let b = body.clone();
+        wide.connect_unapply(move |_| b.remove_css_class("wide"));
+        content.add_breakpoint(wide);
 
         let spinner = adw::Spinner::new();
         spinner.set_size_request(40, 40);
@@ -115,7 +125,7 @@ impl PageView {
         widget.set_transition_type(gtk::StackTransitionType::Crossfade);
         widget.add_named(&spinner, Some("loading"));
         widget.add_named(&status, Some("status"));
-        widget.add_named(&scroller, Some("content"));
+        widget.add_named(&content, Some("content"));
 
         let this = Rc::new(Self {
             widget,

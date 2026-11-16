@@ -198,7 +198,9 @@ impl FitBin {
 // SideLayout: a main column plus a fixed-width sidebar (the watch page's
 // "Up next"), or both stacked when narrow. Unlike a GtkBox it measures the
 // main column at exactly the width it will get, so height-for-width content
-// (the 16:9 player area) is never squeezed.
+// (the 16:9 player area) is never squeezed. It can also keep the main column
+// narrow enough for a picture at its top to fit the scrolled view's height
+// (the watch page's player on wide screens), centering both columns.
 
 mod side_imp {
     use super::*;
@@ -209,6 +211,11 @@ mod side_imp {
         pub side_width: Cell<i32>,
         pub spacing: Cell<i32>,
         pub stacked: Cell<bool>,
+        /// (aspect ratio, room to leave below it): the main column is no
+        /// wider than a picture of that ratio that fits the view's height.
+        pub fit: Cell<Option<(f64, i32)>>,
+        /// The view height the last measurement was made for.
+        pub measured_for: Cell<i32>,
     }
 
     impl Default for SideLayout {
@@ -216,9 +223,11 @@ mod side_imp {
             Self {
                 main: RefCell::new(None),
                 side: RefCell::new(None),
-                side_width: Cell::new(402),
+                side_width: Cell::new(super::SideLayout::SIDE_WIDTH),
                 spacing: Cell::new(24),
                 stacked: Cell::new(false),
+                fit: Cell::new(None),
+                measured_for: Cell::new(-1),
             }
         }
     }
@@ -253,10 +262,24 @@ mod side_imp {
     }
 
     impl SideLayout {
+        /// The height of the scrolled view this is in (or its own).
+        fn view_height(&self) -> i32 {
+            let obj = self.obj();
+            obj.ancestor(gtk::ScrolledWindow::static_type()).map_or_else(|| obj.height(), |sw| sw.height())
+        }
+
         /// Width the main column gets out of `total`.
         fn main_width(&self, main: &Option<gtk::Widget>, total: i32) -> i32 {
             let min = measure(main, gtk::Orientation::Horizontal, -1).0;
-            (total - self.spacing.get() - self.side_width.get()).max(min)
+            let mut w = total - self.spacing.get() - self.side_width.get();
+            if let Some((ratio, below)) = self.fit.get() {
+                let vh = self.view_height();
+                self.measured_for.set(vh);
+                if vh > 0 {
+                    w = w.min(((vh - below).max(0) as f64 * ratio) as i32);
+                }
+            }
+            w.max(min)
         }
     }
 
@@ -309,14 +332,28 @@ mod side_imp {
                 }
             } else {
                 let mw = if side.is_some() { self.main_width(&main, width) } else { width };
+                // Both columns centered when the main one was kept narrower.
+                let used = mw + if side.is_some() { sp + self.side_width.get() } else { 0 };
+                let x0 = ((width - used) / 2).max(0);
                 if let Some(m) = &main {
-                    m.allocate(mw, height, -1, None);
+                    let t = gsk::Transform::new().translate(&graphene::Point::new(x0 as f32, 0.0));
+                    m.allocate(mw, height, -1, Some(t));
                 }
                 if let Some(s) = &side {
-                    let x = if main.is_some() { mw + sp } else { 0 };
+                    let x = x0 + if main.is_some() { mw + sp } else { 0 };
                     let t = gsk::Transform::new().translate(&graphene::Point::new(x as f32, 0.0));
                     s.allocate(self.side_width.get(), height, -1, Some(t));
                 }
+            }
+            // The view's height changed since the measurement it was laid
+            // out with: measure again for the new height.
+            if self.fit.get().is_some() && !self.stacked.get() && self.view_height() != self.measured_for.get() {
+                let obj = self.obj().downgrade();
+                glib::idle_add_local_once(move || {
+                    if let Some(o) = obj.upgrade() {
+                        o.queue_resize();
+                    }
+                });
             }
         }
     }
@@ -338,11 +375,26 @@ impl SideLayout {
         o
     }
 
+    pub const SIDE_WIDTH: i32 = 402;
+
     /// Stacks the sidebar below the main column (narrow windows).
     pub fn set_stacked(&self, stacked: bool) {
         if self.imp().stacked.replace(stacked) != stacked {
             self.queue_resize();
         }
+    }
+
+    pub fn set_side_width(&self, w: i32) {
+        if self.imp().side_width.replace(w) != w {
+            self.queue_resize();
+        }
+    }
+
+    /// Keeps the main column narrow enough for a `ratio` picture at its top
+    /// to fit the scrolled view's height with `below` pixels to spare.
+    pub fn set_fit_height(&self, ratio: f64, below: i32) {
+        self.imp().fit.set(Some((ratio, below)));
+        self.queue_resize();
     }
 }
 

@@ -471,3 +471,81 @@ window.compact .player {
 .immersive .dim-label {
   color: alpha(white, 0.7);
 }
+
+/* Lyrics ("Now playing" and the immersive view). The line being sung is lit,
+   the others dimmed; the ones already sung a little more. */
+.lyrics-lines {
+  background: none;
+}
+.lyrics-lines > row.lyric-line {
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: none;
+  opacity: 0.5;
+  transition: opacity 300ms ease-out;
+}
+.lyrics-lines > row.lyric-line.sung {
+  opacity: 0.32;
+}
+.lyrics-lines > row.lyric-line.current {
+  opacity: 1;
+}
+.lyrics-lines > row.lyric-line:hover {
+  background-color: alpha(currentColor, 0.07);
+}
+.lyrics-small .lyrics-lines label,
+.lyrics-small .lyrics-plain {
+  font-size: 1.25em;
+  font-weight: 700;
+}
+.lyrics-small .lyrics-plain {
+  line-height: 1.5;
+}
+.lyrics-big .lyrics-lines label {
+  font-size: 2.1em;
+  font-weight: 800;
+}
+.lyrics-big .lyrics-lines > row.lyric-line {
+  padding: 8px 12px;
+}
+.lyrics-big .lyrics-plain {
+  font-size: 1.6em;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.lyrics-big > label {
+  font-size: 1.3em;
+}
+
+/* Immersive view: the lyrics / queue panel */
+.immersive.with-panel .immersive-visualizer {
+  opacity: 0.45;
+}
+.immersive-queue .music-list > row.music-row:hover {
+  background-color: alpha(white, 0.08);
+}
+.immersive-queue .music-list > row.now-playing {
+  background-color: alpha(white, 0.16);
+}
+.immersive-queue .track-title {
+  font-size: 1.1em;
+}
+
+/* Big screens (see the breakpoints): bigger list thumbnails and tiles. */
+.wide .list-thumb {
+  min-width: 246px;
+}
+.wide .music-tile .tile-art,
+.wide .tile-column {
+  min-width: 224px;
+}
+.wide .music-tile .wide-tile-art {
+  min-width: 372px;
+}
+.wide .track-column {
+  min-width: 440px;
+}
+.immersive button.osd:checked {
+  background-color: alpha(white, 0.85);
+  color: black;
+}

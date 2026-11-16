@@ -224,8 +224,10 @@ impl WatchPage {
         columns.set_margin_bottom(32);
         columns.set_margin_start(24);
         columns.set_margin_end(24);
-        let clamp = adw::Clamp::builder().maximum_size(1800).tightening_threshold(1400).child(&columns).build();
-        let scroller = super::widgets::scrolled(&clamp);
+        // As wide as the window allows while the player still fits on
+        // screen with the title below it (big screens).
+        columns.set_fit_height(16.0 / 9.0, 16 + 150);
+        let scroller = super::widgets::scrolled(&columns);
 
         let bp_bin = adw::BreakpointBin::builder().width_request(360).height_request(300).child(&scroller).build();
         let bp = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 1000sp").unwrap());
@@ -236,6 +238,12 @@ impl WatchPage {
         bp.add_setter(&columns, "margin-start", Some(&12.to_value()));
         bp.add_setter(&columns, "margin-end", Some(&12.to_value()));
         bp_bin.add_breakpoint(bp);
+        let wide = adw::Breakpoint::new(adw::BreakpointCondition::parse("min-width: 1900sp").unwrap());
+        let c = columns.clone();
+        wide.connect_apply(move |_| c.set_side_width(440));
+        let c = columns.clone();
+        wide.connect_unapply(move |_| c.set_side_width(super::widgets::SideLayout::SIDE_WIDTH));
+        bp_bin.add_breakpoint(wide);
 
         let page = adw::NavigationPage::builder().title("Watch").tag("watch").child(&bp_bin).build();
 

@@ -1,7 +1,11 @@
 //! Immersive view: the track that is playing across the whole screen. Big
 //! artwork (or the music video) over a blurred wash of the art, a large
-//! spectrum visualizer, and controls that fade away while it plays.
+//! spectrum visualizer, and controls that fade away while it plays. Beside
+//! the artwork it can show the lyrics (following the song when timed) or
+//! the queue.
 
+use super::lyrics::LyricsView;
+use super::now_playing::QueueList;
 use super::queue::MusicQueue;
 use super::spectrum::Spectrum;
 use crate::ui::widgets::{FitBin, SeekBar, format_time};
@@ -27,6 +31,13 @@ pub struct Immersive {
     play_icon: gtk::Image,
     next: gtk::Button,
     pub spectrum: Spectrum,
+    panel: gtk::Stack,
+    lyrics_btn: gtk::ToggleButton,
+    queue_btn: gtk::ToggleButton,
+    pub lyrics: Rc<LyricsView>,
+    pub queue_list: Rc<QueueList>,
+    /// The queue changed while the view was hidden.
+    queue_stale: Cell<bool>,
     chrome: Vec<gtk::Revealer>,
     shown: RefCell<String>,
     art_url: Rc<RefCell<String>>,
@@ -75,7 +86,7 @@ impl Immersive {
         art.set_can_shrink(true);
         art.add_css_class("immersive-art");
         art.set_overflow(gtk::Overflow::Hidden);
-        let art_bin = FitBin::new(1.0, 760);
+        let art_bin = FitBin::new(1.0, 1000);
         art_bin.set_child(Some(&art));
         let dock = gtk::Box::new(gtk::Orientation::Vertical, 0);
         dock.add_css_class("video-placeholder");
@@ -131,10 +142,6 @@ impl Immersive {
         let center = gtk::Box::new(gtk::Orientation::Vertical, 10);
         center.set_halign(gtk::Align::Center);
         center.set_valign(gtk::Align::Fill);
-        center.set_margin_top(72);
-        center.set_margin_bottom(40);
-        center.set_margin_start(32);
-        center.set_margin_end(32);
         center.set_size_request(320, -1);
         center.append(&stack);
         center.append(&title);
@@ -142,7 +149,36 @@ impl Immersive {
         center.append(&controls_rev);
         let clamp = adw::Clamp::builder().maximum_size(1200).child(&center).build();
 
-        // Top: "Up next" on the left, Song / Video in the middle, leave on the right.
+        // Beside it: the lyrics or the queue.
+        let lyrics = LyricsView::new(true);
+        let queue_list = QueueList::new(queue);
+        queue_list.widget.add_css_class("immersive-queue");
+        let panel = gtk::Stack::new();
+        panel.set_transition_type(gtk::StackTransitionType::Crossfade);
+        panel.set_hexpand(true);
+        panel.set_vexpand(true);
+        panel.add_named(&lyrics.widget, Some("lyrics"));
+        panel.add_named(&queue_list.widget, Some("queue"));
+        panel.add_css_class("immersive-panel");
+        panel.set_visible(false);
+
+        let body = gtk::Box::new(gtk::Orientation::Horizontal, 48);
+        body.set_homogeneous(true);
+        body.set_margin_top(72);
+        body.set_margin_bottom(40);
+        body.set_margin_start(32);
+        body.set_margin_end(32);
+        body.append(&clamp);
+        body.append(&panel);
+        // Narrow or portrait screens: the panel below instead.
+        let body_bin = adw::BreakpointBin::builder().width_request(300).height_request(300).child(&body).build();
+        let bp = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 1000sp or max-aspect-ratio: 1/1").unwrap());
+        bp.add_setter(&body, "orientation", Some(&gtk::Orientation::Vertical.to_value()));
+        bp.add_setter(&body, "spacing", Some(&24.to_value()));
+        body_bin.add_breakpoint(bp);
+
+        // Top: "Up next" on the left, Song / Video in the middle, the
+        // lyrics and queue switches and leave on the right.
         let up_next = gtk::Label::new(None);
         up_next.add_css_class("immersive-next");
         up_next.set_ellipsize(gtk::pango::EllipsizeMode::End);
@@ -152,11 +188,23 @@ impl Immersive {
         toggle.add(adw::Toggle::builder().name("song").label("Song").build());
         toggle.add(adw::Toggle::builder().name("video").label("Video").build());
         toggle.add_css_class("round");
+        let panel_button = |icon: &str, tip: &str| {
+            let b = gtk::ToggleButton::builder().icon_name(icon).tooltip_text(tip).valign(gtk::Align::Center).build();
+            b.add_css_class("circular");
+            b.add_css_class("osd");
+            b
+        };
+        let lyrics_btn = panel_button("media-view-subtitles-symbolic", "Lyrics");
+        let queue_btn = panel_button("view-list-symbolic", "Up next");
         let exit = button("view-restore-symbolic", "Leave immersive view (Esc)", &["osd"]);
+        let end = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        end.append(&lyrics_btn);
+        end.append(&queue_btn);
+        end.append(&exit);
         let top = gtk::CenterBox::new();
         top.set_start_widget(Some(&up_next));
         top.set_center_widget(Some(&toggle));
-        top.set_end_widget(Some(&exit));
+        top.set_end_widget(Some(&end));
         top.set_margin_top(18);
         top.set_margin_start(24);
         top.set_margin_end(18);
@@ -168,7 +216,7 @@ impl Immersive {
         widget.set_child(Some(&backdrop));
         widget.add_overlay(&shade);
         widget.add_overlay(&spectrum);
-        widget.add_overlay(&clamp);
+        widget.add_overlay(&body_bin);
         widget.add_overlay(&top_rev);
         widget.set_visible(false);
 
@@ -188,6 +236,12 @@ impl Immersive {
             play_icon,
             next: next.clone(),
             spectrum,
+            panel,
+            lyrics_btn,
+            queue_btn,
+            lyrics,
+            queue_list,
+            queue_stale: Cell::new(true),
             chrome: vec![controls_rev, top_rev],
             shown: RefCell::default(),
             art_url: Rc::default(),
@@ -232,6 +286,26 @@ impl Immersive {
             i.stack.set_visible_child_name(if video { "video" } else { "song" });
             player().set_music_video(video);
         });
+        for (b, name) in [(this.lyrics_btn.clone(), "lyrics"), (this.queue_btn.clone(), "queue")] {
+            let wk = Rc::downgrade(&this);
+            b.connect_toggled(move |b| {
+                let Some(i) = wk.upgrade() else { return };
+                if i.updating.get() {
+                    return;
+                }
+                let shown = crate::config::settings().immersive_panel;
+                let panel = if b.is_active() {
+                    name
+                } else if shown == name {
+                    ""
+                } else {
+                    return;
+                };
+                crate::config::update(|c| c.immersive_panel = panel.to_string());
+                i.show_panel(panel);
+            });
+        }
+        this.show_panel(&crate::config::settings().immersive_panel);
         // Moving the pointer brings the controls (and the pointer) back.
         let motion = gtk::EventControllerMotion::new();
         let wk = Rc::downgrade(&this);
@@ -257,11 +331,61 @@ impl Immersive {
         this
     }
 
-    pub fn set_active(self: &Rc<Self>, on: bool) {
+    /// Shows "lyrics", "queue" or nothing ("") beside the artwork.
+    fn show_panel(&self, name: &str) {
+        let name = if matches!(name, "lyrics" | "queue") { name } else { "" };
+        self.updating.set(true);
+        self.lyrics_btn.set_active(name == "lyrics");
+        self.queue_btn.set_active(name == "queue");
+        self.updating.set(false);
+        self.panel.set_visible(!name.is_empty());
+        if name.is_empty() {
+            self.widget.remove_css_class("with-panel");
+        } else {
+            self.panel.set_visible_child_name(name);
+            self.widget.add_css_class("with-panel");
+        }
+        // The queue panel says what's next better than the corner.
+        self.up_next.set_visible(name != "queue");
+        if name == "queue" {
+            self.queue_list.scroll_to_current();
+        }
+        if self.active.get() {
+            crate::ui::ctx().music.update_lyrics();
+        }
+    }
+
+    /// The lyrics panel is on screen.
+    pub fn lyrics_shown(&self) -> bool {
+        self.active.get() && self.panel.is_visible() && self.panel.visible_child_name().as_deref() == Some("lyrics")
+    }
+
+    pub fn update_queue(&self, queue: &Rc<MusicQueue>) {
+        if self.active.get() {
+            self.queue_list.update_queue(queue);
+            self.queue_stale.set(false);
+        } else {
+            self.queue_stale.set(true);
+        }
+    }
+
+    pub fn update_current(&self, queue: &MusicQueue) {
+        if self.active.get() {
+            self.queue_list.update_current(queue);
+            self.queue_list.scroll_to_current();
+        }
+    }
+
+    pub fn set_active(self: &Rc<Self>, on: bool, queue: &Rc<MusicQueue>) {
         self.active.set(on);
         self.widget.set_visible(on);
         self.spectrum.update_ticking();
         if on {
+            if self.queue_stale.get() {
+                self.update_queue(queue);
+            }
+            self.queue_list.update_current(queue);
+            self.queue_list.scroll_to_current();
             self.sync_video_switch(crate::ui::ctx().player.music_video());
             self.show_chrome();
         } else {

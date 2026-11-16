@@ -48,6 +48,15 @@ pub struct Settings {
     /// Size of the compact player window.
     pub compact_width: i32,
     pub compact_height: i32,
+    /// The main window's size (when not maximized) and maximized state.
+    pub window_width: i32,
+    pub window_height: i32,
+    pub window_maximized: bool,
+    /// What the immersive view shows beside the artwork: "lyrics", "queue"
+    /// or "" (nothing).
+    pub immersive_panel: String,
+    /// Ask LRCLIB for timed lyrics when YouTube Music has none.
+    pub lyrics_lrclib: bool,
 }
 
 fn system_locale() -> (String, String) {
@@ -105,6 +114,11 @@ impl Default for Settings {
             sb_user_id: String::new(),
             compact_width: 480,
             compact_height: 270,
+            window_width: 1440,
+            window_height: 900,
+            window_maximized: false,
+            immersive_panel: "lyrics".into(),
+            lyrics_lrclib: true,
         }
     }
 }

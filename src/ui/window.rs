@@ -82,11 +82,13 @@ impl Shell {
         downloads: &adw::NavigationPage,
         music: &Rc<MusicShell>,
     ) -> (Rc<Self>, adw::ToastOverlay) {
+        let saved = config::settings();
         let window = adw::ApplicationWindow::builder()
             .application(app)
             .title("GTube")
-            .default_width(1440)
-            .default_height(900)
+            .default_width(saved.window_width.max(360))
+            .default_height(saved.window_height.max(400))
+            .maximized(saved.window_maximized)
             .width_request(360)
             .height_request(400)
             .icon_name("io.github.gtube")
@@ -554,8 +556,12 @@ impl Shell {
 
         // Ask before quitting with running downloads.
         let wd = Rc::downgrade(watch);
+        let w = Rc::downgrade(self);
         self.window.connect_close_request(move |win| {
             let _ = &wd;
+            if let Some(s) = w.upgrade() {
+                s.save_window_state();
+            }
             let ctx = super::ctx();
             let n = ctx.downloads.active();
             if n == 0 {
@@ -575,6 +581,28 @@ impl Shell {
             });
             d.present(Some(win));
             glib::Propagation::Stop
+        });
+    }
+
+    /// Remembers the window's size for the next start (the size it has
+    /// when not maximized, fullscreen or compact).
+    fn save_window_state(&self) {
+        let win = &self.window;
+        let (w, h, max) = match self.compact_saved.get() {
+            // (The size it had then is the maximized one when maximized.)
+            Some((_, _, true)) => (0, 0, true),
+            Some(saved) => saved,
+            None => {
+                let (w, h) = win.default_size();
+                (w, h, win.is_maximized())
+            }
+        };
+        config::update(|c| {
+            if w > 0 && h > 0 {
+                c.window_width = w;
+                c.window_height = h;
+            }
+            c.window_maximized = max;
         });
     }
 

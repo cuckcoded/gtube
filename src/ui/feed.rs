@@ -71,7 +71,8 @@ pub fn status_box(icon: &str, title: &str, desc: &str) -> (gtk::Box, gtk::Label,
 type ActivateFn = Box<dyn Fn(usize, &[Item])>;
 
 pub struct FeedView {
-    pub widget: gtk::ScrolledWindow,
+    pub widget: adw::BreakpointBin,
+    scroller: gtk::ScrolledWindow,
     pub header: gtk::Box,
     chips: gtk::Box,
     chips_scroller: gtk::ScrolledWindow,
@@ -119,7 +120,7 @@ impl FeedView {
             .homogeneous(true)
             .selection_mode(gtk::SelectionMode::None)
             .min_children_per_line(1)
-            .max_children_per_line(8)
+            .max_children_per_line(4)
             .column_spacing(16)
             .row_spacing(28)
             .valign(gtk::Align::Start)
@@ -146,12 +147,42 @@ impl FeedView {
         content.append(&list);
         content.append(&spinner);
 
-        let widget = super::widgets::scrolled(&content);
-        widget.set_vexpand(true);
-        widget.set_hexpand(true);
+        // Lists (playlists, watch later…) stay readable on wide screens.
+        let body: gtk::Widget = if layout == Layout::List {
+            adw::Clamp::builder().maximum_size(1400).tightening_threshold(1100).child(&content).build().upcast()
+        } else {
+            content.upcast()
+        };
+        let scroller = super::widgets::scrolled(&body);
+        scroller.set_vexpand(true);
+        scroller.set_hexpand(true);
+        let widget = adw::BreakpointBin::builder().width_request(200).height_request(200).child(&scroller).build();
+        // Bigger cards rather than ever more of them as the window widens:
+        // at most this many per row from these widths on.
+        // (Four below the first width; the ranges don't overlap, as only
+        // one breakpoint applies at a time.)
+        for (min, max, columns) in [(1500, Some(1900), 5u32), (1900, Some(2500), 6), (2500, Some(3100), 7), (3100, None, 8)] {
+            let cond = match max {
+                Some(max) => format!("min-width: {min}sp and max-width: {max}sp"),
+                None => format!("min-width: {min}sp"),
+            };
+            let bp = adw::Breakpoint::new(adw::BreakpointCondition::parse(&cond).unwrap());
+            bp.add_setter(&grid, "max-children-per-line", Some(&columns.to_value()));
+            widget.add_breakpoint(bp);
+        }
+        // Any of them: lists get bigger thumbnails.
+        let sc = scroller.clone();
+        widget.connect_current_breakpoint_notify(move |b| {
+            if b.current_breakpoint().is_some() {
+                sc.add_css_class("wide");
+            } else {
+                sc.remove_css_class("wide");
+            }
+        });
 
         let this = Rc::new(Self {
             widget,
+            scroller,
             header,
             chips,
             chips_scroller,
@@ -189,7 +220,7 @@ impl FeedView {
             }
         });
         let weak = Rc::downgrade(&this);
-        this.widget.vadjustment().connect_value_changed(move |adj| {
+        this.scroller.vadjustment().connect_value_changed(move |adj| {
             if let Some(t) = weak.upgrade()
                 && adj.value() + adj.page_size() > adj.upper() - 1200.0
             {
@@ -389,7 +420,7 @@ impl FeedView {
             let weak = Rc::downgrade(self);
             glib::idle_add_local_once(move || {
                 if let Some(t) = weak.upgrade() {
-                    let adj = t.widget.vadjustment();
+                    let adj = t.scroller.vadjustment();
                     if adj.upper() <= adj.page_size() + 1200.0 || added == 0 {
                         t.load_more();
                     }
