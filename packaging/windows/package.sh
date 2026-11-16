@@ -49,10 +49,12 @@ copy_dlls --more "$OUT"/bin/*.dll
 
 # The loaders' list, with paths relative to the folder (gdk-pixbuf resolves
 # them against its own location, so the folder can live anywhere).
-GDK_PIXBUF_MODULEDIR="$OUT/$PIX/loaders" gdk-pixbuf-query-loaders \
+GDK_PIXBUF_MODULEDIR="$OUT/$PIX/loaders" gdk-pixbuf-query-loaders | tr -d '\r' \
     | sed -E 's#^"[^"]*[/\\](lib[/\\]gdk-pixbuf-2\.0[/\\]2\.10\.0[/\\]loaders[/\\][^"/\\]+)"#"\1"#' > "$OUT/$PIX/loaders.cache"
-grep -q svg "$OUT/$PIX/loaders.cache" || { echo "the SVG image loader is missing" >&2; exit 1; }
-if grep -E '^"[A-Za-z]:|^"/' "$OUT/$PIX/loaders.cache"; then
+echo "Image loaders:"
+grep -E '\.dll"$' "$OUT/$PIX/loaders.cache"
+grep -qE '^"lib[/\\][^"]*svg[^"]*\.dll"$' "$OUT/$PIX/loaders.cache" || { echo "the SVG image loader is missing" >&2; exit 1; }
+if grep -qE '^"([A-Za-z]:|/)[^"]*\.dll"$' "$OUT/$PIX/loaders.cache"; then
     echo "absolute paths left in loaders.cache" >&2
     exit 1
 fi
