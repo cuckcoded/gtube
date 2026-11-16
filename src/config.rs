@@ -57,6 +57,14 @@ pub struct Settings {
     pub immersive_panel: String,
     /// Ask LRCLIB for timed lyrics when YouTube Music has none.
     pub lyrics_lrclib: bool,
+    /// Show subtitles for videos that have them.
+    pub subtitles: bool,
+    /// The subtitle language wanted (the last one picked); "" for `language`.
+    pub subtitle_lang: String,
+    /// Without subtitles in that language, show YouTube's translation.
+    pub subtitle_translate: bool,
+    /// Subtitle size (mpv's `sub-scale`).
+    pub subtitle_scale: f64,
 }
 
 fn system_locale() -> (String, String) {
@@ -119,6 +127,10 @@ impl Default for Settings {
             window_maximized: false,
             immersive_panel: "lyrics".into(),
             lyrics_lrclib: true,
+            subtitles: false,
+            subtitle_lang: String::new(),
+            subtitle_translate: false,
+            subtitle_scale: 1.0,
         }
     }
 }
@@ -126,6 +138,11 @@ impl Default for Settings {
 impl Settings {
     pub fn sb_mode(&self, cat: &str) -> SbMode {
         self.sb_modes.get(cat).copied().unwrap_or(SbMode::Show)
+    }
+
+    /// The subtitle language wanted.
+    pub fn subtitle_language(&self) -> &str {
+        if self.subtitle_lang.is_empty() { &self.language } else { &self.subtitle_lang }
     }
 }
 

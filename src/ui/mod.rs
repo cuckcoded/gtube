@@ -11,6 +11,7 @@ pub mod playlist;
 pub mod queue;
 pub mod settings;
 pub mod sponsorblock;
+pub mod subtitles;
 pub mod text;
 pub mod watch;
 pub mod widgets;

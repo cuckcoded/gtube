@@ -144,6 +144,47 @@ pub fn show() {
         |v| config::update(|c| c.resume_playback = v),
     ));
     playback.add(&pg);
+    let subs = adw::PreferencesGroup::builder()
+        .title("Subtitles")
+        .description("Picking subtitles in the player (or pressing C) changes these too.")
+        .build();
+    subs.add(&switch("Show subtitles", "For videos that have them", s.subtitles, |v| {
+        config::update(|c| c.subtitles = v);
+        super::ctx().player.subtitle_settings_changed();
+    }));
+    let sub_lang = adw::EntryRow::builder()
+        .title(format!("Language (e.g. en, it, de; empty for “{}”)", s.language))
+        .text(&s.subtitle_lang)
+        .show_apply_button(true)
+        .build();
+    sub_lang.connect_apply(|r| {
+        let v = r.text().trim().to_string();
+        config::update(|c| c.subtitle_lang = v);
+        super::ctx().player.subtitle_settings_changed();
+    });
+    subs.add(&sub_lang);
+    subs.add(&switch(
+        "Auto-translate",
+        "When a video has no subtitles in that language, show YouTube's automatic translation",
+        s.subtitle_translate,
+        |v| {
+            config::update(|c| c.subtitle_translate = v);
+            super::ctx().player.subtitle_settings_changed();
+        },
+    ));
+    let scales = [0.75, 1.0, 1.3, 1.6];
+    let size = adw::ComboRow::builder()
+        .title("Size")
+        .model(&gtk::StringList::new(&["Small", "Normal", "Large", "Very large"]))
+        .selected(scales.iter().position(|v| (v - s.subtitle_scale).abs() < 0.01).unwrap_or(1) as u32)
+        .build();
+    size.connect_selected_notify(move |r| {
+        let v = scales[r.selected() as usize];
+        config::update(|c| c.subtitle_scale = v);
+        super::ctx().player.set_subtitle_scale(v);
+    });
+    subs.add(&size);
+    playback.add(&subs);
     let mg = adw::PreferencesGroup::builder().title("YouTube Music").build();
     mg.add(&switch("Ambient color", "Tint Music mode with the colors of the album art that is playing", s.music_ambient, |v| {
         config::update(|c| c.music_ambient = v);

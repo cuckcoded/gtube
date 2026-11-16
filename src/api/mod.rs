@@ -20,6 +20,18 @@ use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
 use std::sync::{Arc, OnceLock, RwLock};
 
+/// A request YouTube answered with an error status.
+#[derive(Debug)]
+pub struct HttpStatus(pub u16);
+
+impl std::fmt::Display for HttpStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "YouTube returned HTTP {}", self.0)
+    }
+}
+
+impl std::error::Error for HttpStatus {}
+
 pub const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";
 const ORIGIN: &str = "https://www.youtube.com";
 const FALLBACK_CLIENT_VERSION: &str = "2.20261112.10.00";
@@ -444,6 +456,22 @@ impl Client {
             ("subscription/unsubscribe", "CgIIAhgA")
         };
         self.post(ep, json!({ "channelIds": [channel_id], "params": params })).await.map(|_| ())
+    }
+
+    /// Downloads a subtitle track (a timedtext URL from the player
+    /// response), as the website's player does.
+    pub async fn timedtext(&self, url: &str) -> Result<String> {
+        let cookie = self.session.read().unwrap().cookies.header_for("www.youtube.com");
+        let resp = self.http.get(url).header("Cookie", cookie).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(HttpStatus(status.as_u16()).into());
+        }
+        let text = resp.text().await?;
+        if text.trim().is_empty() {
+            bail!("YouTube sent empty subtitles");
+        }
+        Ok(text)
     }
 
     pub async fn suggestions(&self, query: &str) -> Result<Vec<String>> {

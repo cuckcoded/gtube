@@ -1,5 +1,6 @@
 //! The video player: mpv rendering into a GtkGLArea, plus YouTube-style
-//! controls, SponsorBlock skipping, audio-only mode and the miniplayer.
+//! controls, SponsorBlock skipping, subtitles, audio-only mode and the
+//! miniplayer.
 //!
 //! The player widget lives in an overlay above the whole content area and is
 //! never reparented (which would destroy the GL context). Instead it is
@@ -7,6 +8,7 @@
 //! visible, shrinks to a corner miniplayer otherwise, or covers everything
 //! in fullscreen.
 
+use super::subtitles::{self, Choice};
 use super::widgets::{PlayerHost, SeekBar, format_time};
 use crate::api::{self, extras, extras::Segment, models::VideoItem, stats};
 use crate::config::{self, SbMode};
@@ -57,6 +59,9 @@ pub struct Player {
     fs_btn: gtk::Button,
     speed_btn: gtk::MenuButton,
     quality_btn: gtk::MenuButton,
+    subs_btn: gtk::MenuButton,
+    /// `player.subtitles`: the subtitles menu's choice.
+    subs_action: gio::SimpleAction,
     highlight_btn: gtk::Button,
     compact_btn: gtk::Button,
     mini_btn: gtk::Button,
@@ -101,6 +106,16 @@ pub struct Player {
     music_owned: Cell<bool>,
     /// The current stream was opened with a video track.
     loaded_with_video: Cell<bool>,
+    /// mpv has the current file open (subtitles can be added to it).
+    file_ready: Cell<bool>,
+    /// The current item's subtitles.
+    captions: RefCell<extract::Captions>,
+    /// What to show of them; None until they are known for a new item.
+    sub_choice: RefCell<Option<Choice>>,
+    /// Subtitle tracks added to the open file: (URL, mpv track id, choice).
+    sub_tracks: RefCell<Vec<(String, i64, Choice)>>,
+    /// Bumped whenever the subtitles to show change.
+    sub_gen: Cell<u64>,
     /// mpv's `af` (the visualizer's analysis filter, or nothing).
     audio_filter: RefCell<String>,
     seg_bar: RefCell<Vec<(f64, f64, gdk::RGBA, String)>>,
@@ -204,6 +219,7 @@ impl Player {
             ("audio-client-name", "GTube".into()),
             ("volume", format!("{}", s.volume)),
             ("sub-auto", "no".into()),
+            ("sub-scale", format!("{}", s.subtitle_scale)),
             // We wait for `available_at` ourselves; this only covers clock
             // skew and short network hiccups.
             ("stream-lavf-o", "reconnect_on_http_error=403,reconnect_on_network_error=1".into()),
@@ -385,6 +401,13 @@ impl Player {
         quality_btn.set_valign(gtk::Align::Center);
         quality_btn.set_direction(gtk::ArrowType::Up);
 
+        let subs_btn = gtk::MenuButton::builder().icon_name("media-view-subtitles-symbolic").tooltip_text("No subtitles").build();
+        subs_btn.add_css_class("flat");
+        subs_btn.set_valign(gtk::Align::Center);
+        subs_btn.set_direction(gtk::ArrowType::Up);
+        subs_btn.set_sensitive(false);
+        let subs_action = gio::SimpleAction::new_stateful("subtitles", Some(glib::VariantTy::STRING), &"off".to_variant());
+
         let download_btn = icon_button("folder-download-symbolic", "Download");
         let mini_btn = icon_button("gtube-miniplayer-symbolic", "Miniplayer (i)");
         let compact_btn = icon_button("gtube-compact-symbolic", "Compact player (Ctrl+Shift+M)");
@@ -407,6 +430,7 @@ impl Player {
             spacer.upcast_ref(),
             highlight_btn.upcast_ref(),
             sb_btn.upcast_ref(),
+            subs_btn.upcast_ref(),
             audio_btn.upcast_ref(),
             speed_btn.upcast_ref(),
             quality_btn.upcast_ref(),
@@ -496,6 +520,7 @@ impl Player {
             (speed_btn.clone().upcast(), 580),
             (audio_btn.clone().upcast(), 540),
             (volume.clone().upcast(), 500),
+            (subs_btn.clone().upcast(), 420),
             (compact_btn.clone().upcast(), 360),
         ];
 
@@ -525,6 +550,8 @@ impl Player {
             fs_btn,
             speed_btn,
             quality_btn,
+            subs_btn,
+            subs_action,
             highlight_btn,
             compact_btn,
             mini_btn: mini_btn.clone(),
@@ -555,6 +582,11 @@ impl Player {
             music_video: Cell::new(config::settings().music_video),
             music_owned: Cell::new(false),
             loaded_with_video: Cell::new(false),
+            file_ready: Cell::new(false),
+            captions: RefCell::new(extract::Captions::default()),
+            sub_choice: RefCell::new(None),
+            sub_tracks: RefCell::new(Vec::new()),
+            sub_gen: Cell::new(0),
             audio_filter: RefCell::new(String::new()),
             seg_bar: RefCell::new(Vec::new()),
             rect: Cell::new((0.0, 0.0, 1.0, 1.0)),
@@ -679,6 +711,7 @@ impl Player {
         self.area.connect_resize(move |_, width, height| {
             if let Some(p) = wr.upgrade() {
                 p.fb_size.set((width, height));
+                p.update_sub_margin();
             }
         });
         let wr = w.clone();
@@ -792,7 +825,20 @@ impl Player {
             }
         });
         group.add_action(&quality);
+        let wr = w.clone();
+        self.subs_action.connect_activate(move |_, param| {
+            if let (Some(p), Some(key)) = (wr.upgrade(), param.and_then(|v| v.get::<String>())) {
+                p.pick_subtitles(&key);
+            }
+        });
+        group.add_action(&self.subs_action);
         self.host.insert_action_group("player", Some(&group));
+        let wr = w.clone();
+        self.bottom.connect_reveal_child_notify(move |_| {
+            if let Some(p) = wr.upgrade() {
+                p.update_sub_margin();
+            }
+        });
 
         // Pointer: reveal controls, click to pause, double click for fullscreen
         let motion = gtk::EventControllerMotion::new();
@@ -1025,6 +1071,7 @@ impl Player {
         self.mini_progress.set_visible(mini);
         // Music mode has its own player bar.
         self.bottom.set_visible(!mini && !(self.music.get() && new == Mode::Docked));
+        self.update_sub_margin();
         self.top.set_visible(matches!(new, Mode::Fullscreen | Mode::Compact));
         for (c, on) in [
             ("mini", mini),
@@ -1173,6 +1220,7 @@ impl Player {
         self.notice.set_reveal_child(false);
         self.error_box.set_visible(false);
         self.spinner.set_visible(true);
+        self.set_captions(extract::Captions::default(), true);
         self.title.set_text(&v.title);
         self.time_label.set_text("0:00 / 0:00");
         let cover = v.thumbnail.clone().filter(|_| music).unwrap_or_else(|| format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", v.id));
@@ -1511,6 +1559,7 @@ impl Player {
             self.resume_toast(at);
         }
         self.update_audio_filter();
+        self.set_captions(streams.captions.clone(), false);
         let video = self.shows_video() && self.mpv.has_render_context();
         self.mpv.set_str("vid", if video { "auto" } else { "no" });
         let mut opts = Vec::new();
@@ -1525,6 +1574,209 @@ impl Player {
             self.show_error(&format!("Could not start playback: {e}"));
         }
         self.mpv.set_bool("pause", false);
+    }
+
+    // ------------------------------------------------------------------
+    // Subtitles
+
+    /// The subtitles of what is about to play. For a new item (`new_item`)
+    /// they aren't known yet; once they are, what to show comes from the
+    /// settings. A reload of the same item keeps what was shown.
+    fn set_captions(&self, c: extract::Captions, new_item: bool) {
+        self.sub_tracks.borrow_mut().clear();
+        self.sub_gen.set(self.sub_gen.get() + 1);
+        if new_item {
+            self.sub_choice.replace(None);
+        } else if self.sub_choice.borrow().is_none() {
+            self.sub_choice.replace(Some(self.wanted_subtitles(&c)));
+        }
+        self.subs_btn.set_menu_model(Some(&subtitles::menu(&c)));
+        self.captions.replace(c);
+        self.sync_subs_ui();
+    }
+
+    /// What the settings ask for.
+    fn wanted_subtitles(&self, c: &extract::Captions) -> Choice {
+        let s = config::settings();
+        // Music has lyrics instead.
+        if !s.subtitles || self.music_owned.get() {
+            return Choice::Off;
+        }
+        subtitles::preferred(c, s.subtitle_language(), s.subtitle_translate)
+    }
+
+    fn sync_subs_ui(&self) {
+        let choice = self.sub_choice.borrow().clone().unwrap_or(Choice::Off);
+        self.subs_action.set_state(&choice.key().to_variant());
+        let has = !self.captions.borrow().tracks.is_empty();
+        self.subs_btn.set_sensitive(has);
+        self.subs_btn.set_tooltip_text(Some(if has { "Subtitles (c)" } else { "No subtitles" }));
+        if choice == Choice::Off {
+            self.subs_btn.remove_css_class("subs-on");
+        } else {
+            self.subs_btn.add_css_class("subs-on");
+        }
+    }
+
+    /// A pick from the subtitles menu, remembered for the next videos.
+    fn pick_subtitles(self: &Rc<Self>, key: &str) {
+        let current = self.sub_choice.borrow().clone().unwrap_or(Choice::Off);
+        let c = self.captions.borrow().clone();
+        let Some(choice) = Choice::from_key(key, &c, &current) else { return };
+        match &choice {
+            Choice::Off => config::update(|s| s.subtitles = false),
+            Choice::Track(i) => {
+                let lang = c.tracks[*i].lang.clone();
+                config::update(|s| {
+                    s.subtitles = true;
+                    s.subtitle_lang = lang;
+                });
+            }
+            Choice::Translate { to, .. } => {
+                let to = to.clone();
+                config::update(|s| {
+                    s.subtitles = true;
+                    s.subtitle_lang = to;
+                    s.subtitle_translate = true;
+                });
+            }
+        }
+        self.show_subtitles(choice);
+    }
+
+    fn show_subtitles(self: &Rc<Self>, choice: Choice) {
+        self.sub_choice.replace(Some(choice));
+        self.sync_subs_ui();
+        self.apply_subtitles();
+    }
+
+    /// Turns subtitles on or off (C), and remembers that.
+    pub fn toggle_subtitles(self: &Rc<Self>) {
+        if self.current.borrow().is_none() {
+            return;
+        }
+        let choice = self.sub_choice.borrow().clone();
+        match choice {
+            // Not known yet: decided when they are.
+            None => {
+                let on = !config::settings().subtitles;
+                config::update(|s| s.subtitles = on);
+                super::toast(if on { "Subtitles on" } else { "Subtitles off" });
+            }
+            Some(Choice::Off) => {
+                if self.captions.borrow().tracks.is_empty() {
+                    super::toast("This video has no subtitles");
+                    return;
+                }
+                config::update(|s| s.subtitles = true);
+                let c = self.captions.borrow().clone();
+                let s = config::settings();
+                self.show_subtitles(subtitles::preferred(&c, s.subtitle_language(), s.subtitle_translate));
+            }
+            Some(_) => {
+                config::update(|s| s.subtitles = false);
+                self.show_subtitles(Choice::Off);
+            }
+        }
+    }
+
+    /// The subtitle settings changed: applies them to what is playing.
+    pub fn subtitle_settings_changed(self: &Rc<Self>) {
+        let Some(current) = self.sub_choice.borrow().clone() else { return };
+        let wanted = self.wanted_subtitles(&self.captions.borrow());
+        if wanted != current {
+            self.show_subtitles(wanted);
+        }
+    }
+
+    pub fn set_subtitle_scale(&self, scale: f64) {
+        self.mpv.set_f64("sub-scale", scale);
+    }
+
+    /// Shows the chosen subtitles in the open file, downloading them first
+    /// if they weren't yet.
+    fn apply_subtitles(self: &Rc<Self>) {
+        if !self.file_ready.get() {
+            return;
+        }
+        let generation = self.sub_gen.get() + 1;
+        self.sub_gen.set(generation);
+        let choice = self.sub_choice.borrow().clone().unwrap_or(Choice::Off);
+        let source = choice.source(&self.captions.borrow()).filter(|_| self.loaded_with_video.get());
+        let Some(src) = source else {
+            self.mpv.set_str("sid", "no");
+            return;
+        };
+        if let Some((_, id, _)) = self.sub_tracks.borrow().iter().find(|(url, ..)| *url == src.url) {
+            self.mpv.set_str("sid", &id.to_string());
+            return;
+        }
+        let load = self.load_gen.get();
+        let w = Rc::downgrade(self);
+        runtime::spawn_local(async move {
+            let url = src.url.clone();
+            let res = runtime::run(async move { api::client().timedtext(&url).await }).await;
+            let Some(p) = w.upgrade() else { return };
+            if p.sub_gen.get() != generation || p.load_gen.get() != load || !p.file_ready.get() {
+                return;
+            }
+            match res {
+                Ok(text) => p.add_subtitles(&src, &text, choice),
+                Err(e) => p.subtitles_failed(&choice, &e),
+            }
+        });
+    }
+
+    fn add_subtitles(&self, src: &subtitles::Source, text: &str, choice: Choice) {
+        let data = format!("memory://{}", text.replace('\0', ""));
+        if let Err(e) = self.mpv.command(&["sub-add", &data, "select", &src.title, &src.lang]) {
+            crate::log::warn(&format!("could not add subtitles ({}): {e}", src.lang));
+            super::toast("Couldn't show the subtitles");
+            return;
+        }
+        match self.mpv.get_str("sid").and_then(|id| id.parse().ok()) {
+            Some(id) => self.sub_tracks.borrow_mut().push((src.url.clone(), id, choice)),
+            None => crate::log::warn(&format!("subtitles ({}) were added but aren't shown", src.lang)),
+        }
+    }
+
+    fn subtitles_failed(self: &Rc<Self>, choice: &Choice, e: &anyhow::Error) {
+        crate::log::warn(&format!("subtitles: {e:#}"));
+        let shown = self.mpv.get_str("sid").and_then(|id| id.parse::<i64>().ok()).and_then(|id| {
+            self.sub_tracks.borrow().iter().find(|(_, track, _)| *track == id).map(|(.., c)| c.clone())
+        });
+        // A translation that didn't come: the subtitles it translates
+        // instead, unless others are on screen.
+        let original = match (choice, &shown) {
+            (Choice::Translate { from, .. }, None) => Some(Choice::Track(*from)),
+            _ => None,
+        };
+        let mut msg = match (choice, e.downcast_ref::<api::HttpStatus>()) {
+            (Choice::Translate { .. }, Some(api::HttpStatus(429))) => {
+                "YouTube is refusing auto-translated subtitles right now (HTTP 429)".to_string()
+            }
+            _ => format!("Couldn't load the subtitles ({e})"),
+        };
+        if let Some(c) = original.as_ref().and_then(|c| c.source(&self.captions.borrow())) {
+            msg.push_str(&format!("; showing {}", c.title));
+        }
+        super::toast(&msg);
+        match original {
+            Some(c) => self.show_subtitles(c),
+            None => {
+                self.sub_choice.replace(Some(shown.unwrap_or(Choice::Off)));
+                self.sync_subs_ui();
+            }
+        }
+    }
+
+    /// Keeps subtitles clear of the controls while those are shown.
+    fn update_sub_margin(&self) {
+        let h = self.area.height();
+        let bar = if self.bottom.reveals_child() && self.bottom.is_visible() { self.bottom.height() } else { 0 };
+        // In pixels of a 720 pixels tall picture; 22 is mpv's default.
+        let margin = 22 + if h > 0 { bar * 720 / h } else { 0 };
+        self.mpv.set_str("sub-margin-y", &margin.to_string());
     }
 
     fn reload_current(self: &Rc<Self>) {
@@ -1793,6 +2045,7 @@ impl Player {
         while let Some(ev) = self.mpv.poll_event() {
             match ev {
                 Event::StartFile => {
+                    self.file_ready.set(false);
                     self.last_error.borrow_mut().clear();
                     self.error_important.set(false);
                     self.error_box.set_visible(false);
@@ -1800,6 +2053,8 @@ impl Player {
                 }
                 Event::FileLoaded => {
                     self.spinner.set_visible(false);
+                    self.file_ready.set(true);
+                    self.apply_subtitles();
                     self.notify_state();
                 }
                 Event::PlaybackRestart => {
@@ -1808,6 +2063,7 @@ impl Player {
                     self.notify_state();
                 }
                 Event::EndFile { reason, error } => {
+                    self.file_ready.set(false);
                     if reason == mpv::END_FILE_ERROR && self.current.borrow().is_some() {
                         let log = self.last_error.borrow().clone();
                         let msg = if !log.is_empty() { log } else if !error.is_empty() { error } else { "Playback failed".into() };

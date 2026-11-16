@@ -6,6 +6,7 @@ A native GTK4 / libadwaita YouTube client written in Rust.
 - **No ads:** videos play straight from the media streams, so video ads are never fetched. Promoted results, ad slots and banners are removed from every feed.
 - **No Shorts:** they're removed from feeds, search, Up next and channel pages. A Shorts link still opens in the normal player, like any other video.
 - **SponsorBlock:** segments are skipped automatically (with Undo) or marked in the seek bar, per category, and highlights get a marker and a "Jump to highlight" button. You can **submit segments** too: press `;` (or the shield button in the player) where one starts and again where it ends, check it in the dialog (Preview), pick the category and submit. Submissions go to an anonymous ID that GTube makes once and keeps in its settings.
+- **Subtitles:** the ones uploaded with the video, YouTube's auto-generated ones, and YouTube's automatic translation of either into other languages (the subtitles button in the player, or C). GTube remembers whether they're on and the language you picked, and shows that language when a video has it (Settings → Playback → Subtitles, which also has the size). Auto-translated subtitles often don't come at the moment: YouTube limits them and answers HTTP 429. GTube then says so and shows the untranslated ones.
 - **Return YouTube Dislike:** estimated dislike counts and the like/dislike ratio bar.
 - **Downloads:** video (up to 4K) or audio (mp3/m4a/opus/flac), whole playlists, with optional metadata/thumbnail/chapters, and SponsorBlock segments cut out.
 - **Miniplayer:** keep watching in a corner while you browse. **Compact player:** shrink the whole window to just the player (Ctrl+Shift+M, the button next to fullscreen, or the menu). Resize it like any window and drag the video to move it; Esc or the same button brings the app back as it was. (Wayland doesn't let apps keep a window on top; most desktops have an "Always on top" item in the window menu, e.g. Alt+Space.) **Audio-only** mode streams just the audio.
@@ -96,6 +97,7 @@ When YouTube attaches a pre-roll ad, its servers hold the video back for the ad'
 | Esc | leave fullscreen / immersive view / compact player |
 | Ctrl+Shift+M | compact player |
 | ; | mark a SponsorBlock segment's start, then its end |
+| C | subtitles on / off |
 | M | mute |
 | I | miniplayer / back to the video |
 | A | audio only (Music: Song / Video) |
