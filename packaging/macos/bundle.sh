@@ -93,6 +93,20 @@ for f in "$PIX"/loaders/*; do loader_args+=(-x "$f"); done
 # (stdin closed: dylibbundler asks on the terminal when it can't find a library)
 dylibbundler -of -b -x "$C/MacOS/gtube" "${loader_args[@]}" -d "$C/Frameworks" -p @executable_path/../Frameworks/ \
     -s "$BREW/lib" </dev/null
+# dylibbundler can add its rpath to a file more than once, and dyld refuses
+# to load anything with a duplicate LC_RPATH.
+rpaths() { otool -l "$1" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }'; }
+for f in "$C/MacOS/gtube" "$C"/Frameworks/*.dylib "$PIX"/loaders/*; do
+    for _ in 1 2 3 4 5 6 7 8; do
+        dup=$(rpaths "$f" | sort | uniq -d | head -n1)
+        if [ -z "$dup" ]; then break; fi
+        install_name_tool -delete_rpath "$dup" "$f"
+    done
+    if [ -n "$(rpaths "$f" | sort | uniq -d)" ]; then
+        echo "could not remove duplicate rpaths from $f" >&2
+        exit 1
+    fi
+done
 # A .dylib loader still carries its Homebrew path as its own name.
 for f in "$PIX"/loaders/*.dylib; do
     if [ -e "$f" ]; then install_name_tool -id "@loader_path/$(basename "$f")" "$f"; fi
