@@ -64,14 +64,25 @@ done
 
 # Image loaders (SVG icons need librsvg's). Their list names them by absolute
 # path; src/bundle.rs writes the real one at startup from this template.
-# Listed before dylibbundler rewrites their libraries' paths, while they
-# still load from Homebrew.
+# They are listed where Homebrew keeps them (their libraries are found
+# relative to there), with the paths then pointed into the bundle.
+originals=()
 for dir in "$BREW/lib/gdk-pixbuf-2.0/2.10.0/loaders" "$(brew --prefix librsvg)/lib/gdk-pixbuf-2.0/2.10.0/loaders"; do
-    [ -d "$dir" ] && find "$dir" -name '*.so' -exec cp -L {} "$PIX/loaders/" \;
+    [ -d "$dir" ] || continue
+    for f in "$dir"/*.so; do
+        [ -e "$f" ] || continue
+        name=$(basename "$f")
+        [ -e "$PIX/loaders/$name" ] && continue # the same loader, linked into both places
+        cp -L "$f" "$PIX/loaders/$name"
+        chmod u+w "$PIX/loaders/$name"
+        originals+=("$(realpath "$f")")
+    done
 done
-ls "$PIX/loaders"/*.so >/dev/null
-GDK_PIXBUF_MODULEDIR="$PIX/loaders" gdk-pixbuf-query-loaders | sed "s|$RES|@RESOURCES@|g" > "$PIX/loaders.cache.in"
-grep -q svg "$PIX/loaders.cache.in" || { echo "the SVG image loader is missing" >&2; exit 1; }
+[ ${#originals[@]} -gt 0 ] || { echo "no image loaders found" >&2; exit 1; }
+gdk-pixbuf-query-loaders "${originals[@]}" \
+    | sed -E 's#^"[^"]*/([^/"]+\.so)"#"@RESOURCES@/lib/gdk-pixbuf-2.0/2.10.0/loaders/\1"#' > "$PIX/loaders.cache.in"
+grep -q '"@RESOURCES@/lib/gdk-pixbuf-2.0/2.10.0/loaders/[^"]*svg[^"]*\.so"' "$PIX/loaders.cache.in" \
+    || { cat "$PIX/loaders.cache.in"; echo "the SVG image loader is missing" >&2; exit 1; }
 
 # Every Homebrew library the program and the loaders use, into Frameworks.
 loader_args=()
