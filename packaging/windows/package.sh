@@ -4,7 +4,8 @@
 # target/release/gtube.exe. Run in an MSYS2 UCRT64 shell with
 #   mingw-w64-ucrt-x86_64-{gtk4,libadwaita,mpv,adwaita-icon-theme,librsvg,imagemagick} unzip zip
 # packaging/windows/gtube.iss then makes the installer from the folder.
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "${BASH_SOURCE[0]}:$LINENO: failed: $BASH_COMMAND" >&2' ERR
 cd "$(dirname "$0")/../.."
 
 APP_ID=io.github.gtube
@@ -22,14 +23,29 @@ cp "$PREFIX/$PIX"/loaders/*.dll "$OUT/$PIX/loaders/"
 
 # Every DLL from MSYS2 that the program and the loaders need (ldd lists
 # them recursively). GTK finds its data relative to its DLL: bin\..\share.
-copy_dlls() {
-    ldd "$@" | awk '{print $3}' | grep -i "^$PREFIX/bin/" | sort -u | while read -r dll; do
+copy_dlls() { # [--more] FILES: --more when finding nothing new is fine
+    local more=false out dlls
+    [ "$1" = --more ] && { more=true; shift; }
+    # ldd fails when anything is missing; what it found is still listed.
+    out=$(ldd "$@" 2>&1) || echo "ldd reported a problem with $*:" >&2
+    if grep -qE '=> (not found|\?\?\?)' <<<"$out"; then
+        grep -E '=> (not found|\?\?\?)' <<<"$out" >&2
+    fi
+    dlls=$(awk '{print $3}' <<<"$out" | grep -i "^$PREFIX/bin/" | sort -u || true)
+    if [ -z "$dlls" ]; then
+        $more && return 0
+        echo "ldd listed no MSYS2 libraries for $*; it printed:" >&2
+        head -n 30 <<<"$out" >&2
+        exit 1
+    fi
+    while read -r dll; do
         [ -e "$OUT/bin/$(basename "$dll")" ] || cp "$dll" "$OUT/bin/"
-    done
+    done <<<"$dlls"
+    echo "$(ls "$OUT/bin" | wc -l) files in bin after $(basename "$1")"
 }
 copy_dlls "$OUT/bin/gtube.exe" "$OUT/$PIX"/loaders/*.dll
 # libmpv's own plugins load more at runtime; make sure nothing is missing.
-copy_dlls "$OUT"/bin/*.dll
+copy_dlls --more "$OUT"/bin/*.dll
 
 # The loaders' list, with paths relative to the folder (gdk-pixbuf resolves
 # them against its own location, so the folder can live anywhere).

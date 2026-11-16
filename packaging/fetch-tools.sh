@@ -5,7 +5,8 @@
 # A yt-dlp installed on the system is still preferred at runtime.
 #
 # usage: fetch-tools.sh linux|windows|macos DEST_DIR
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "${BASH_SOURCE[0]}:$LINENO: failed: $BASH_COMMAND" >&2' ERR
 
 case "${1:-}" in
     linux)   ytdlp=yt-dlp_linux; ytdlp_out=yt-dlp;     deno=deno-x86_64-unknown-linux-gnu.zip; deno_bin=deno ;;

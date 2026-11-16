@@ -6,7 +6,8 @@
 # packages GTube builds against, file, unzip, curl, librsvg2-common and
 # adwaita-icon-theme. The GTK runtime, libmpv and their libraries go into the
 # AppImage; glibc and the graphics drivers come from the system.
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "${BASH_SOURCE[0]}:$LINENO: failed: $BASH_COMMAND" >&2' ERR
 cd "$(dirname "$0")/../.."
 
 APP_ID=io.github.gtube

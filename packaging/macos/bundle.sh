@@ -5,7 +5,8 @@
 #
 # The app is signed ad hoc (not notarized): after downloading it, open it
 # with right-click → Open, or run: xattr -dr com.apple.quarantine GTube.app
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "${BASH_SOURCE[0]}:$LINENO: failed: $BASH_COMMAND" >&2' ERR
 cd "$(dirname "$0")/../.."
 
 APP_ID=io.github.gtube
