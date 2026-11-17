@@ -65,6 +65,8 @@ pub struct Settings {
     pub subtitle_translate: bool,
     /// Subtitle size (mpv's `sub-scale`).
     pub subtitle_scale: f64,
+    /// The watch page's player spans the whole width (theater mode).
+    pub theater: bool,
 }
 
 fn system_locale() -> (String, String) {
@@ -131,6 +133,7 @@ impl Default for Settings {
             subtitle_lang: String::new(),
             subtitle_translate: false,
             subtitle_scale: 1.0,
+            theater: false,
         }
     }
 }

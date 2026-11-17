@@ -10,6 +10,7 @@ A native GTK4 / libadwaita YouTube client written in Rust.
 - **Return YouTube Dislike:** estimated dislike counts and the like/dislike ratio bar.
 - **Downloads:** video (up to 4K) or audio (mp3/m4a/opus/flac), whole playlists, with optional metadata/thumbnail/chapters, and SponsorBlock segments cut out.
 - **Miniplayer:** keep watching in a corner while you browse. **Compact player:** shrink the whole window to just the player (Ctrl+Shift+M, the button next to fullscreen, or the menu). Resize it like any window and drag the video to move it; Esc or the same button brings the app back as it was. (Wayland doesn't let apps keep a window on top; most desktops have an "Always on top" item in the window menu, e.g. Alt+Space.) **Audio-only** mode streams just the audio.
+- **Theater mode:** the player spans the whole width of the watch page, as tall as the window allows with the title still in view, and the description, comments and Up next move below it (T, or the button next to fullscreen). GTube remembers it.
 - **Playlists and mixes:** a playlist plays as a queue next to the video, all of it (long ones load as they play), with loop and shuffle; Play all / Shuffle on playlist pages. Mixes (the endless "Mix – …" lists) show up in search and play as queues that keep going. Every video has Play next, Add to queue and Start mix in its menu, and the player gets previous / next buttons (Shift+P / Shift+N). `watch?v=…&list=…` links open with their playlist or mix.
 - **Picks up where you left off:** GTube reports what you watch to YouTube the way youtube.com does, so your watch history shows how far you got. Videos you watched part of, here or on any other device, continue from where YouTube says you stopped (with "Start over" in the notification). Needs signing in; both can be turned off in Settings → Playback.
 - **Pages** for watching (description, comments with replies, Up next, playlist queue), channels, playlists, search, and your own profile ("You"). They make use of big screens: the player grows to fill the window's height, grids get more columns, and the Music pages get wider with bigger artwork. The window opens at the size it last had. Feed chips (All, Music, Gaming…) filter the feed; click the selected one again to go back to everything. The refresh button in the header (or Ctrl+R) reloads Home, Subscriptions, You and search results, keeping the selected chip.
@@ -98,6 +99,7 @@ When YouTube attaches a pre-roll ad, its servers hold the video back for the ad'
 | Ctrl+Shift+M | compact player |
 | ; | mark a SponsorBlock segment's start, then its end |
 | C | subtitles on / off |
+| T | theater mode |
 | M | mute |
 | I | miniplayer / back to the video |
 | A | audio only (Music: Song / Video) |

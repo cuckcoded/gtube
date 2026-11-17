@@ -7,8 +7,27 @@ use gtk::subclass::prelude::*;
 use gtk::{gdk, glib, graphene, gsk};
 use std::cell::{Cell, RefCell};
 
+/// The height of the scrolled view `w` is in (or its own).
+fn view_height(w: &impl IsA<gtk::Widget>) -> i32 {
+    w.ancestor(gtk::ScrolledWindow::static_type()).map_or_else(|| w.height(), |sw| sw.height())
+}
+
+/// Measures `w` again when the view's height is no longer the one it was
+/// measured for (for sizes that depend on it).
+fn remeasure_for_view(w: &impl IsA<gtk::Widget>, measured_for: i32) {
+    if view_height(w) != measured_for {
+        let w = w.as_ref().downgrade();
+        glib::idle_add_local_once(move || {
+            if let Some(w) = w.upgrade() {
+                w.queue_resize();
+            }
+        });
+    }
+}
+
 // ---------------------------------------------------------------------------
-// AspectBin: height follows width at a fixed ratio.
+// AspectBin: height follows width at a fixed ratio (optionally no taller
+// than the scrolled view it is in allows).
 
 mod aspect_imp {
     use super::*;
@@ -16,11 +35,15 @@ mod aspect_imp {
     pub struct AspectBin {
         pub child: RefCell<Option<gtk::Widget>>,
         pub ratio: Cell<f64>,
+        /// Room to leave below it in the scrolled view.
+        pub fit: Cell<Option<i32>>,
+        /// The view height the last measurement was made for.
+        pub measured_for: Cell<i32>,
     }
 
     impl Default for AspectBin {
         fn default() -> Self {
-            Self { child: RefCell::new(None), ratio: Cell::new(16.0 / 9.0) }
+            Self { child: RefCell::new(None), ratio: Cell::new(16.0 / 9.0), fit: Cell::new(None), measured_for: Cell::new(-1) }
         }
     }
 
@@ -53,7 +76,14 @@ mod aspect_imp {
                     // width, so the aspect height is only the natural size
                     // (like GtkPicture does).
                     let w = if for_size >= 0 { for_size } else { self.obj().width_request().max(0) };
-                    let h = (w as f64 / ratio).round() as i32;
+                    let mut h = (w as f64 / ratio).round() as i32;
+                    if let Some(below) = self.fit.get() {
+                        let vh = view_height(&*self.obj());
+                        self.measured_for.set(vh);
+                        if vh > 0 {
+                            h = h.min((vh - below).max(vh / 2));
+                        }
+                    }
                     (0, h, -1, -1)
                 }
             }
@@ -62,6 +92,9 @@ mod aspect_imp {
         fn size_allocate(&self, width: i32, height: i32, baseline: i32) {
             if let Some(c) = self.child.borrow().as_ref() {
                 c.allocate(width, height, baseline, None);
+            }
+            if self.fit.get().is_some() {
+                remeasure_for_view(&*self.obj(), self.measured_for.get());
             }
         }
     }
@@ -89,6 +122,13 @@ impl AspectBin {
             c.set_parent(self);
             self.imp().child.replace(Some(c.clone().upcast()));
         }
+        self.queue_resize();
+    }
+
+    /// Keeps it no taller than the scrolled view it is in, less `below`
+    /// pixels (but at least half of the view).
+    pub fn set_fit_height(&self, below: Option<i32>) {
+        self.imp().fit.set(below);
         self.queue_resize();
     }
 }
@@ -262,18 +302,12 @@ mod side_imp {
     }
 
     impl SideLayout {
-        /// The height of the scrolled view this is in (or its own).
-        fn view_height(&self) -> i32 {
-            let obj = self.obj();
-            obj.ancestor(gtk::ScrolledWindow::static_type()).map_or_else(|| obj.height(), |sw| sw.height())
-        }
-
         /// Width the main column gets out of `total`.
         fn main_width(&self, main: &Option<gtk::Widget>, total: i32) -> i32 {
             let min = measure(main, gtk::Orientation::Horizontal, -1).0;
             let mut w = total - self.spacing.get() - self.side_width.get();
             if let Some((ratio, below)) = self.fit.get() {
-                let vh = self.view_height();
+                let vh = view_height(&*self.obj());
                 self.measured_for.set(vh);
                 if vh > 0 {
                     w = w.min(((vh - below).max(0) as f64 * ratio) as i32);
@@ -347,13 +381,8 @@ mod side_imp {
             }
             // The view's height changed since the measurement it was laid
             // out with: measure again for the new height.
-            if self.fit.get().is_some() && !self.stacked.get() && self.view_height() != self.measured_for.get() {
-                let obj = self.obj().downgrade();
-                glib::idle_add_local_once(move || {
-                    if let Some(o) = obj.upgrade() {
-                        o.queue_resize();
-                    }
-                });
+            if self.fit.get().is_some() && !self.stacked.get() {
+                remeasure_for_view(&*self.obj(), self.measured_for.get());
             }
         }
     }

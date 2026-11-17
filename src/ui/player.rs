@@ -36,6 +36,8 @@ struct SegState {
 }
 
 type Callback = RefCell<Option<Box<dyn Fn()>>>;
+/// A callback with an argument.
+type Hook<T> = RefCell<Option<Box<dyn Fn(T)>>>;
 
 pub struct Player {
     pub host: PlayerHost,
@@ -57,6 +59,9 @@ pub struct Player {
     volume: gtk::Scale,
     audio_btn: gtk::ToggleButton,
     fs_btn: gtk::Button,
+    theater_btn: gtk::Button,
+    /// The watch page's player spans the window's width.
+    theater: Cell<bool>,
     speed_btn: gtk::MenuButton,
     quality_btn: gtk::MenuButton,
     subs_btn: gtk::MenuButton,
@@ -161,6 +166,8 @@ pub struct Player {
     pub on_error: RefCell<Option<Box<dyn Fn(&str)>>>,
     /// Music mode's Song / Video choice changed.
     pub on_music_video: RefCell<Option<Box<dyn Fn(bool)>>>,
+    /// Theater mode was turned on or off.
+    pub on_theater: Hook<bool>,
 }
 
 fn icon_button(icon: &str, tooltip: &str) -> gtk::Button {
@@ -415,6 +422,7 @@ impl Player {
         let sb_btn = icon_button("gtube-shield-symbolic", "Mark a SponsorBlock segment (;)");
         sb_btn.set_action_name(Some("win.sb-mark"));
         let fs_btn = icon_button("view-fullscreen-symbolic", "Fullscreen (f)");
+        let theater_btn = icon_button("gtube-theater-symbolic", "Theater mode (t)");
 
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         row.set_margin_start(8);
@@ -437,6 +445,7 @@ impl Player {
             download_btn.upcast_ref(),
             mini_btn.upcast_ref(),
             compact_btn.upcast_ref(),
+            theater_btn.upcast_ref(),
             fs_btn.upcast_ref(),
         ] {
             row.append(w);
@@ -548,6 +557,8 @@ impl Player {
             volume,
             audio_btn,
             fs_btn,
+            theater_btn,
+            theater: Cell::new(false),
             speed_btn,
             quality_btn,
             subs_btn,
@@ -625,7 +636,9 @@ impl Player {
             on_state: RefCell::new(None),
             on_error: RefCell::new(None),
             on_music_video: RefCell::new(None),
+            on_theater: RefCell::new(None),
         });
+        this.show_theater(s.theater);
 
         this.connect_signals(retry, download_btn, mini_btn, expand_btn, close_btn, overlay);
         let w = Rc::downgrade(&this);
@@ -733,6 +746,7 @@ impl Player {
         self.mini_play.connect_clicked(weak!(|p: &Rc<Player>| p.toggle_pause()));
         self.mute_btn.connect_clicked(weak!(|p: &Rc<Player>| p.toggle_mute()));
         self.fs_btn.connect_clicked(weak!(|p: &Rc<Player>| p.toggle_fullscreen()));
+        self.theater_btn.connect_clicked(weak!(|p: &Rc<Player>| p.toggle_theater()));
         retry.connect_clicked(weak!(|p: &Rc<Player>| p.reload_current()));
         download_btn.connect_clicked(weak!(|p: &Rc<Player>| {
             if let Some(f) = p.on_download.borrow().as_ref() {
@@ -1090,6 +1104,7 @@ impl Player {
         self.compact_btn.set_icon_name(if compact { "gtube-uncompact-symbolic" } else { "gtube-compact-symbolic" });
         self.compact_btn.set_tooltip_text(Some(if compact { "Restore window (Esc)" } else { "Compact player (Ctrl+Shift+M)" }));
         self.fit_controls();
+        self.sync_theater();
         self.show_controls();
 
         // Track the placeholder every frame while docked (it moves when the
@@ -1149,6 +1164,39 @@ impl Player {
         self.highlight_btn.set_visible(self.want_highlight.get() && w >= 600);
         self.time_label.set_visible(w >= 280);
         self.mini_btn.set_visible(w >= 440 && self.mode.get() != Mode::Compact);
+        self.theater_btn.set_visible(w >= 480 && self.on_watch_page());
+    }
+
+    /// Docked on the watch page (Music docks it on "Now playing").
+    pub fn on_watch_page(&self) -> bool {
+        self.mode.get() == Mode::Docked && !self.music.get()
+    }
+
+    /// Theater mode on the watch page: the player spans the window's width,
+    /// with the video's details and the related videos below it.
+    pub fn toggle_theater(&self) {
+        let on = !self.theater.get();
+        config::update(|s| s.theater = on);
+        self.show_theater(on);
+        if let Some(f) = self.on_theater.borrow().as_ref() {
+            f(on);
+        }
+    }
+
+    fn show_theater(&self, on: bool) {
+        self.theater.set(on);
+        self.theater_btn.set_icon_name(if on { "gtube-default-view-symbolic" } else { "gtube-theater-symbolic" });
+        self.theater_btn.set_tooltip_text(Some(if on { "Default view (t)" } else { "Theater mode (t)" }));
+        self.sync_theater();
+    }
+
+    /// Square corners while it spans the watch page.
+    fn sync_theater(&self) {
+        if self.theater.get() && self.on_watch_page() {
+            self.host.add_css_class("theater");
+        } else {
+            self.host.remove_css_class("theater");
+        }
     }
 
     fn set_highlight_visible(&self, on: bool) {
@@ -1396,6 +1444,8 @@ impl Player {
         }
         self.force_mini.set(false);
         self.update_mode();
+        self.fit_controls();
+        self.sync_theater();
         self.apply_video();
     }
 

@@ -80,6 +80,7 @@ fn build_ui(app: &adw::Application) {
         }
     })));
     player.on_state.replace(Some(Box::new(|| ui::ctx().music.on_player_state())));
+    player.on_theater.replace(Some(Box::new(|on| ui::ctx().watch.set_theater(on))));
     player.on_error.replace(Some(Box::new(|_| {
         let c = ui::ctx();
         if c.player.is_music_owned() {

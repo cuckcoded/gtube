@@ -17,6 +17,10 @@ pub struct WatchPage {
     pub page: adw::NavigationPage,
     scroller: gtk::ScrolledWindow,
     pub placeholder: AspectBin,
+    /// The main column, which has the player at its top…
+    left: gtk::Box,
+    /// …unless it is in theater mode, across the page above both columns.
+    theater: gtk::Box,
     title: gtk::Label,
     avatar: adw::Avatar,
     channel_name: gtk::Label,
@@ -227,7 +231,13 @@ impl WatchPage {
         // As wide as the window allows while the player still fits on
         // screen with the title below it (big screens).
         columns.set_fit_height(16.0 / 9.0, 16 + 150);
-        let scroller = super::widgets::scrolled(&columns);
+        let theater = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        theater.add_css_class("theater-area");
+        theater.set_visible(false);
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        body.append(&theater);
+        body.append(&columns);
+        let scroller = super::widgets::scrolled(&body);
 
         let bp_bin = adw::BreakpointBin::builder().width_request(360).height_request(300).child(&scroller).build();
         let bp = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 1000sp").unwrap());
@@ -251,6 +261,8 @@ impl WatchPage {
             page,
             scroller,
             placeholder,
+            left,
+            theater,
             title,
             avatar,
             channel_name,
@@ -280,6 +292,7 @@ impl WatchPage {
             opening: Cell::new(false),
         });
         this.connect(channel_btn, download_btn, audio_btn, mini_btn);
+        this.set_theater(config::settings().theater);
         this
     }
 
@@ -477,6 +490,24 @@ impl WatchPage {
         if config::settings().dislikes {
             self.load_votes(v.id.clone());
         }
+    }
+
+    /// Theater mode: the player above both columns, across the whole page
+    /// and as tall as fits with the title below it.
+    pub fn set_theater(&self, on: bool) {
+        if self.theater.is_visible() == on {
+            return;
+        }
+        let from = if on { &self.left } else { &self.theater };
+        from.remove(&self.placeholder);
+        if on {
+            self.theater.append(&self.placeholder);
+            self.placeholder.set_fit_height(Some(16 + 120));
+        } else {
+            self.left.prepend(&self.placeholder);
+            self.placeholder.set_fit_height(None);
+        }
+        self.theater.set_visible(on);
     }
 
     /// Brings the watch page to the front of the navigation stack.

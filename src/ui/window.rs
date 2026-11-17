@@ -513,6 +513,7 @@ impl Shell {
         add("fullscreen", || super::ctx().player.toggle_fullscreen());
         add("play-pause", || super::ctx().player.toggle_pause());
         add("subtitles", || super::ctx().player.toggle_subtitles());
+        add("theater", || super::ctx().player.toggle_theater());
         // `go::home`, `go::subs`, `go::history`, …
         let go = gio::SimpleAction::new("go", Some(glib::VariantTy::STRING));
         go.connect_activate(|_, p| {
@@ -719,6 +720,7 @@ impl Shell {
             gdk::Key::Escape if self.is_compact() => self.set_compact(false),
             gdk::Key::semicolon => super::sponsorblock::mark(),
             gdk::Key::c => p.toggle_subtitles(),
+            gdk::Key::t if p.on_watch_page() => p.toggle_theater(),
             gdk::Key::j => p.seek_relative(-10.0),
             gdk::Key::l => p.seek_relative(10.0),
             gdk::Key::Left if big => p.seek_relative(-5.0),

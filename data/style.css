@@ -76,6 +76,14 @@ flowboxchild.card-child:hover {
 .player-host.mini .player {
   border-radius: 10px;
 }
+/* Theater mode: the watch page's player across the whole width */
+.theater-area {
+  background-color: black;
+}
+.theater-area .video-placeholder,
+.player-host.docked.theater .player {
+  border-radius: 0;
+}
 .player-host.mini {
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
   border-radius: 10px;
