@@ -603,8 +603,8 @@ impl WatchPage {
             if let Some(v) = self.video.borrow_mut().as_mut() {
                 v.title = d.title.clone();
             }
-            super::ctx().player.set_title(&d.id, &d.title);
         }
+        super::ctx().player.set_details(&d.id, &d.title, &d.channel.title);
         self.channel_name.set_text(&d.channel.title);
         self.channel_subs.set_text(d.channel.subscribers.as_deref().unwrap_or(""));
         self.avatar.set_text(Some(&d.channel.title));

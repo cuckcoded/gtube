@@ -161,13 +161,15 @@ pub struct Player {
     pub on_minimize: Callback,
     pub on_download: Callback,
     pub on_segments: RefCell<Option<Box<dyn Fn(&[Segment])>>>,
-    /// Position, duration, pause, loading, volume or segments changed.
+    /// Position, duration, pause, loading, volume, speed or segments changed.
     pub on_state: Callback,
     pub on_error: RefCell<Option<Box<dyn Fn(&str)>>>,
     /// Music mode's Song / Video choice changed.
     pub on_music_video: RefCell<Option<Box<dyn Fn(bool)>>>,
     /// Theater mode was turned on or off.
     pub on_theater: Hook<bool>,
+    /// Playback restarted at another position (a seek, or a new item).
+    pub on_seeked: Hook<f64>,
 }
 
 fn icon_button(icon: &str, tooltip: &str) -> gtk::Button {
@@ -637,6 +639,7 @@ impl Player {
             on_error: RefCell::new(None),
             on_music_video: RefCell::new(None),
             on_theater: RefCell::new(None),
+            on_seeked: RefCell::new(None),
         });
         this.show_theater(s.theater);
 
@@ -1146,6 +1149,11 @@ impl Player {
         self.current.borrow().as_ref().map(|v| v.id.clone())
     }
 
+    /// The watch page has something to play next.
+    pub fn can_skip_next(&self) -> bool {
+        self.want_next.get()
+    }
+
     /// Shows the previous / next buttons (for the watch page's queue).
     pub fn set_skip(&self, prev: bool, next: bool) {
         self.want_prev.set(prev);
@@ -1494,6 +1502,11 @@ impl Player {
         self.paused.get()
     }
 
+    /// Playback of the current item failed (the error is showing).
+    pub fn has_failed(&self) -> bool {
+        self.error_box.is_visible()
+    }
+
     pub fn is_loading(&self) -> bool {
         self.spinner.is_visible() || self.wait_box.is_visible()
     }
@@ -1505,6 +1518,19 @@ impl Player {
     pub fn set_volume(&self, v: f64) {
         self.volume.set_value(v.clamp(0.0, 130.0));
     }
+
+    pub fn speed(&self) -> f64 {
+        self.speed.get()
+    }
+
+    /// Plays at `rate` (through the speed menu's action, so it shows it).
+    pub fn set_speed(&self, rate: f64) {
+        let rate = rate.clamp(Self::MIN_SPEED, Self::MAX_SPEED);
+        self.host.activate_action("player.speed", Some(&format!("{rate}").to_variant())).ok();
+    }
+
+    pub const MIN_SPEED: f64 = 0.25;
+    pub const MAX_SPEED: f64 = 3.0;
 
     pub fn is_muted(&self) -> bool {
         self.muted.get()
@@ -2075,13 +2101,20 @@ impl Player {
     }
 
     /// Updates the title once full video details arrive.
-    pub fn set_title(&self, id: &str, title: &str) {
-        if let Some(v) = self.current.borrow_mut().as_mut()
-            && v.id == id
+    /// The video's details arrived: its full title and channel.
+    pub fn set_details(&self, id: &str, title: &str, channel: &str) {
         {
-            v.title = title.to_string();
-            self.title.set_text(title);
+            let mut current = self.current.borrow_mut();
+            let Some(v) = current.as_mut().filter(|v| v.id == id) else { return };
+            if !title.is_empty() {
+                v.title = title.to_string();
+                self.title.set_text(title);
+            }
+            if v.channel_name.is_none() && !channel.is_empty() {
+                v.channel_name = Some(channel.to_string());
+            }
         }
+        self.notify_state();
     }
 
     pub fn position(&self) -> f64 {
@@ -2111,6 +2144,9 @@ impl Player {
                     self.sb_seeking.set(false);
                     self.spinner.set_visible(false);
                     self.notify_state();
+                    if let Some(f) = self.on_seeked.borrow().as_ref() {
+                        f(self.mpv.get_f64("time-pos").unwrap_or(self.position.get()));
+                    }
                 }
                 Event::EndFile { reason, error } => {
                     self.file_ready.set(false);
@@ -2225,6 +2261,7 @@ impl Player {
                     self.speed.set(s);
                     let txt = format!("{s}").trim_end_matches(".0").to_string();
                     self.speed_btn.set_label(&format!("{txt}×"));
+                    self.notify_state();
                 }
             }
             "eof-reached" => {

@@ -5,6 +5,7 @@ pub mod downloads;
 pub mod feed;
 pub mod library;
 pub mod login;
+pub mod mpris;
 pub mod music;
 pub mod player;
 pub mod playlist;

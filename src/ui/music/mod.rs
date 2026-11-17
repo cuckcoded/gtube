@@ -19,6 +19,7 @@ use crate::{images, runtime};
 use adw::prelude::*;
 use gtk::{gdk, glib};
 use page::{PageView, Source};
+pub use queue::Repeat;
 use queue::{Change, MusicQueue};
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};

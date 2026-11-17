@@ -79,7 +79,11 @@ fn build_ui(app: &adw::Application) {
             c.watch.show();
         }
     })));
-    player.on_state.replace(Some(Box::new(|| ui::ctx().music.on_player_state())));
+    player.on_state.replace(Some(Box::new(|| {
+        ui::ctx().music.on_player_state();
+        ui::mpris::update();
+    })));
+    player.on_seeked.replace(Some(Box::new(ui::mpris::seeked)));
     player.on_theater.replace(Some(Box::new(|on| ui::ctx().watch.set_theater(on))));
     player.on_error.replace(Some(Box::new(|_| {
         let c = ui::ctx();
@@ -107,6 +111,7 @@ fn build_ui(app: &adw::Application) {
     })));
     player.on_segments.replace(Some(Box::new(|segs| ui::ctx().watch.set_segments(segs))));
 
+    ui::mpris::start(app);
     shell.window.present();
     shell.go("home");
     shell.start_session();
