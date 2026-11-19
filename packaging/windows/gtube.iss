@@ -1,10 +1,10 @@
 ; Inno Setup script for GTube's Windows installer, made from the folder
 ; packaging/windows/package.sh builds:
-;   iscc /DAppVersion=0.3.0 packaging\windows\gtube.iss
+;   iscc /DAppVersion=0.4.0 packaging\windows\gtube.iss
 ; Writes build\GTube-setup-x86_64.exe.
 
 #ifndef AppVersion
-  #define AppVersion "0.3.0"
+  #define AppVersion "0.4.0"
 #endif
 
 [Setup]
