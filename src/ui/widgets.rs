@@ -654,6 +654,39 @@ pub fn scrolled(child: &impl IsA<gtk::Widget>) -> gtk::ScrolledWindow {
     gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).child(&vp).build()
 }
 
+/// A grip that drags `row` onto another such row of its list to reorder it:
+/// `pos` says where `row` is now, `moved(from, to)` makes the move.
+pub fn reorder_handle(row: &impl IsA<gtk::Widget>, pos: impl Fn() -> usize + 'static, moved: impl Fn(usize, usize) + 'static) -> gtk::Image {
+    let handle = gtk::Image::from_icon_name("list-drag-handle-symbolic");
+    handle.add_css_class("dim-label");
+    handle.set_tooltip_text(Some("Drag to reorder"));
+    handle.set_cursor_from_name(Some("grab"));
+    let pos = std::rc::Rc::new(pos);
+    let drag = gtk::DragSource::new();
+    drag.set_actions(gdk::DragAction::MOVE);
+    let (p, h, r) = (pos.clone(), handle.downgrade(), row.as_ref().downgrade());
+    drag.connect_prepare(move |d, x, y| {
+        // The row follows the pointer from where it was grabbed.
+        if let (Some(h), Some(r)) = (h.upgrade(), r.upgrade()) {
+            let at = h.compute_point(&r, &graphene::Point::new(x as f32, y as f32)).unwrap_or_else(graphene::Point::zero);
+            d.set_icon(Some(&gtk::WidgetPaintable::new(Some(&r))), at.x() as i32, at.y() as i32);
+        }
+        Some(gdk::ContentProvider::for_value(&(p() as u32).to_value()))
+    });
+    handle.add_controller(drag);
+    let drop = gtk::DropTarget::new(u32::static_type(), gdk::DragAction::MOVE);
+    drop.connect_drop(move |_, v, _, _| {
+        let Ok(from) = v.get::<u32>() else { return false };
+        let to = pos();
+        if from as usize != to {
+            moved(from as usize, to);
+        }
+        true
+    });
+    row.as_ref().add_controller(drop);
+    handle
+}
+
 pub fn format_time(t: f64) -> String {
     if !t.is_finite() || t < 0.0 {
         return "0:00".into();

@@ -93,6 +93,37 @@ pub enum LikeAction {
     Remove,
 }
 
+/// A change to one of the user's playlists. Entries are named by their
+/// set id (`VideoItem::set_video_id`).
+pub enum PlaylistEdit {
+    Add(String),
+    /// Removes an entry, or (without one) the video.
+    Remove { video_id: String, set_id: Option<String> },
+    /// Moves entry `.0` just before entry `.1`.
+    MoveBefore(String, String),
+    /// Moves entry `.0` just after entry `.1`.
+    MoveAfter(String, String),
+    Name(String),
+    Description(String),
+    /// PUBLIC, UNLISTED or PRIVATE.
+    Privacy(String),
+}
+
+impl PlaylistEdit {
+    fn action(&self) -> Value {
+        match self {
+            Self::Add(id) => json!({ "action": "ACTION_ADD_VIDEO", "addedVideoId": id }),
+            Self::Remove { video_id, set_id: Some(s) } => json!({ "action": "ACTION_REMOVE_VIDEO", "setVideoId": s, "removedVideoId": video_id }),
+            Self::Remove { video_id, set_id: None } => json!({ "action": "ACTION_REMOVE_VIDEO_BY_VIDEO_ID", "removedVideoId": video_id }),
+            Self::MoveBefore(s, next) => json!({ "action": "ACTION_MOVE_VIDEO_BEFORE", "setVideoId": s, "movedSetVideoIdSuccessor": next }),
+            Self::MoveAfter(s, prev) => json!({ "action": "ACTION_MOVE_VIDEO_AFTER", "setVideoId": s, "movedSetVideoIdPredecessor": prev }),
+            Self::Name(t) => json!({ "action": "ACTION_SET_PLAYLIST_NAME", "playlistName": t }),
+            Self::Description(t) => json!({ "action": "ACTION_SET_PLAYLIST_DESCRIPTION", "playlistDescription": t }),
+            Self::Privacy(p) => json!({ "action": "ACTION_SET_PLAYLIST_PRIVACY", "playlistPrivacy": p }),
+        }
+    }
+}
+
 fn ytcfg_value(html: &str, key: &str) -> Option<String> {
     let re = regex::Regex::new(&format!(r#""{key}"\s*:\s*("(?:[^"\\]|\\.)*"|true|false|-?\d+)"#)).ok()?;
     let raw = re.captures(html)?.get(1)?.as_str();
@@ -456,6 +487,27 @@ impl Client {
             ("subscription/unsubscribe", "CgIIAhgA")
         };
         self.post(ep, json!({ "channelIds": [channel_id], "params": params })).await.map(|_| ())
+    }
+
+    /// The user's playlists, each saying whether it has `video_id`.
+    pub async fn save_targets(&self, video_id: &str) -> Result<Vec<SaveTarget>> {
+        let v = self.post("playlist/get_add_to_playlist", json!({ "videoIds": [video_id], "excludeWatchLater": false })).await?;
+        Ok(parse::parse_save_targets(&v))
+    }
+
+    /// Creates a playlist with `video_ids` in it; returns its id.
+    pub async fn create_playlist(&self, title: &str, privacy: &str, video_ids: &[String]) -> Result<String> {
+        let v = self.post("playlist/create", json!({ "title": title, "privacyStatus": privacy, "videoIds": video_ids })).await?;
+        v.get("playlistId").and_then(Value::as_str).map(str::to_string).context("YouTube didn't create the playlist")
+    }
+
+    pub async fn edit_playlist(&self, playlist_id: &str, edits: &[PlaylistEdit]) -> Result<()> {
+        let actions: Vec<Value> = edits.iter().map(PlaylistEdit::action).collect();
+        let v = self.post("browse/edit_playlist", json!({ "playlistId": playlist_id, "actions": actions })).await?;
+        match v.get("status").and_then(Value::as_str) {
+            Some(s) if s != "STATUS_SUCCEEDED" => bail!("YouTube refused the change ({s})"),
+            _ => Ok(()),
+        }
     }
 
     /// Downloads a subtitle track (a timedtext URL from the player

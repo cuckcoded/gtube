@@ -138,6 +138,10 @@ impl WatchPage {
         download_btn.set_tooltip_text(Some("Download"));
         download_btn.add_css_class("circular");
         download_btn.set_valign(gtk::Align::Center);
+        let save_btn = gtk::Button::from_icon_name("bookmark-new-symbolic");
+        save_btn.set_tooltip_text(Some("Save to playlist"));
+        save_btn.add_css_class("circular");
+        save_btn.set_valign(gtk::Align::Center);
         let audio_btn = gtk::Button::from_icon_name("audio-headphones-symbolic");
         audio_btn.set_tooltip_text(Some("Toggle audio only"));
         audio_btn.add_css_class("circular");
@@ -153,6 +157,7 @@ impl WatchPage {
         actions_row.append(&rating_col);
         actions_row.append(&audio_btn);
         actions_row.append(&mini_btn);
+        actions_row.append(&save_btn);
         actions_row.append(&download_btn);
         actions_row.append(&share_btn);
 
@@ -291,12 +296,12 @@ impl WatchPage {
             updating: Cell::new(false),
             opening: Cell::new(false),
         });
-        this.connect(channel_btn, download_btn, audio_btn, mini_btn);
+        this.connect(channel_btn, download_btn, save_btn, audio_btn, mini_btn);
         this.set_theater(config::settings().theater);
         this
     }
 
-    fn connect(self: &Rc<Self>, channel_btn: gtk::Button, download_btn: gtk::Button, audio_btn: gtk::Button, mini_btn: gtk::Button) {
+    fn connect(self: &Rc<Self>, channel_btn: gtk::Button, download_btn: gtk::Button, save_btn: gtk::Button, audio_btn: gtk::Button, mini_btn: gtk::Button) {
         let w = Rc::downgrade(self);
         channel_btn.connect_clicked(move |_| {
             if let Some(t) = w.upgrade()
@@ -309,6 +314,12 @@ impl WatchPage {
         download_btn.connect_clicked(move |_| {
             if let Some(v) = w.upgrade().and_then(|t| t.video.borrow().clone()) {
                 super::downloads::show_dialog(&v);
+            }
+        });
+        let w = Rc::downgrade(self);
+        save_btn.connect_clicked(move |_| {
+            if let Some(v) = w.upgrade().and_then(|t| t.video.borrow().clone()) {
+                super::playlist::save_dialog(&v.id);
             }
         });
         audio_btn.connect_clicked(|_| {

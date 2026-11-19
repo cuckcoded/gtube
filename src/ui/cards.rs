@@ -266,6 +266,11 @@ fn attach_menu(card: &gtk::Box, item: Item) {
             let vv = v.clone();
             add("download", Box::new(move || super::downloads::show_dialog(&vv)));
             more.append(Some("Download…"), Some("card.download"));
+            if crate::api::client().is_logged_in() {
+                let id = v.id.clone();
+                add("save", Box::new(move || super::playlist::save_dialog(&id)));
+                more.append(Some("Save to playlist…"), Some("card.save"));
+            }
             if let Some(cid) = v.channel_id.clone() {
                 add("channel", Box::new(move || super::open_channel(&cid)));
                 more.append(Some("Go to channel"), Some("card.channel"));

@@ -410,6 +410,7 @@ fn parse_video_renderer(v: &Value) -> Option<VideoItem> {
         is_live,
         is_short,
         progress,
+        set_video_id: v.get("setVideoId").and_then(Value::as_str).map(str::to_string),
     })
 }
 
@@ -513,6 +514,8 @@ fn parse_lockup(v: &Value) -> Option<Item> {
                 is_live,
                 is_short,
                 progress,
+                // In the owner's playlist, its "Remove" command names the entry.
+                set_video_id: find_first(v, "setVideoId").and_then(Value::as_str).map(str::to_string),
             }))
         }
         "LOCKUP_CONTENT_TYPE_PLAYLIST" | "LOCKUP_CONTENT_TYPE_PODCAST" | "LOCKUP_CONTENT_TYPE_ALBUM" => {
@@ -1051,7 +1054,38 @@ pub fn parse_playlist(root: &Value, id: &str, opts: Opts) -> PlaylistPage {
     }
     page.feed = parse_feed(root, opts);
     page.feed.chips.clear();
+    page.editable = match find_first(root, "playlistVideoListRenderer") {
+        Some(l) => l.get("isEditable").and_then(Value::as_bool).unwrap_or(false),
+        // Newer pages: only the owner's entries carry a set id.
+        None => page.feed.items.iter().any(|i| matches!(i, Item::Video(v) if v.set_video_id.is_some())),
+    };
+    page.privacy = root
+        .get("header")
+        .and_then(|h| find_first(h, "privacy"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            page.stats.iter().find_map(|s| match s.as_str() {
+                "Public" | "Unlisted" | "Private" => Some(s.to_uppercase()),
+                _ => None,
+            })
+        });
     page
+}
+
+/// The user's playlists from `playlist/get_add_to_playlist`.
+pub fn parse_save_targets(root: &Value) -> Vec<SaveTarget> {
+    let mut opts = Vec::new();
+    find_all(root, "playlistAddToOptionRenderer", &mut opts);
+    opts.into_iter()
+        .filter_map(|o| {
+            Some(SaveTarget {
+                id: o.get("playlistId")?.as_str()?.to_string(),
+                title: o.get("title").and_then(text)?,
+                saved: o.get("containsSelectedVideos").and_then(Value::as_str) == Some("ALL"),
+            })
+        })
+        .collect()
 }
 
 pub fn parse_account(root: &Value) -> Option<Account> {
@@ -1219,5 +1253,38 @@ mod tests {
         assert!(matches!(parse_youtube_url("https://www.youtube.com/playlist?list=PL1"), Some(Resolved::Playlist(_))));
         assert!(matches!(parse_youtube_url("https://www.youtube.com/@handle"), Some(Resolved::Search(_))));
         assert!(parse_youtube_url("linux kernel").is_none());
+    }
+
+    #[test]
+    fn owned_playlists_are_editable() {
+        let entry = |id: &str, owned: bool| {
+            let mut l = serde_json::json!({"lockupViewModel": {
+                "contentType": "LOCKUP_CONTENT_TYPE_VIDEO", "contentId": id,
+                "metadata": {"lockupMetadataViewModel": {"title": {"content": id}}}}});
+            if owned {
+                l["lockupViewModel"]["menu"] = serde_json::json!({"playlistEditEndpoint": {"actions": [
+                    {"action": "ACTION_REMOVE_VIDEO", "setVideoId": format!("s{id}")}]}});
+            }
+            l
+        };
+        let page = |owned| serde_json::json!({"contents": [entry("a", owned), entry("b", owned)]});
+        let opts = Opts { hide_shorts: false };
+        let p = parse_playlist(&page(true), "PL1", opts);
+        assert!(p.editable);
+        assert!(matches!(&p.feed.items[1], Item::Video(v) if v.set_video_id.as_deref() == Some("sb")));
+        assert!(!parse_playlist(&page(false), "PL1", opts).editable);
+        // The older list says so itself (and has set ids either way).
+        let old = serde_json::json!({"contents": {"playlistVideoListRenderer": {"isEditable": false, "contents": [
+            {"playlistVideoRenderer": {"videoId": "a", "title": {"simpleText": "A"}, "setVideoId": "sa"}}]}}});
+        assert!(!parse_playlist(&old, "PL1", opts).editable);
+    }
+
+    #[test]
+    fn save_targets() {
+        let v = serde_json::json!({"contents": [{"addToPlaylistRenderer": {"playlists": [
+            {"playlistAddToOptionRenderer": {"playlistId": "WL", "title": {"simpleText": "Watch later"}, "containsSelectedVideos": "NONE"}},
+            {"playlistAddToOptionRenderer": {"playlistId": "PL1", "title": {"simpleText": "Mine"}, "containsSelectedVideos": "ALL"}}]}}]});
+        let t = parse_save_targets(&v);
+        assert_eq!(t.iter().map(|t| (t.id.as_str(), t.saved)).collect::<Vec<_>>(), [("WL", false), ("PL1", true)]);
     }
 }

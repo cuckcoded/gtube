@@ -311,6 +311,12 @@ fn queue_row(t: &Track, i: usize, current: bool, queue: &Rc<MusicQueue>) -> gtk:
         let Some(q) = q.upgrade() else { return };
         let q2 = q.clone();
         mb.item("Play next", move || q2.move_next(i));
+        if i > 0 {
+            let q2 = q.clone();
+            mb.item("Move up", move || q2.move_to(i, i - 1));
+        }
+        let q2 = q.clone();
+        mb.item("Move down", move || q2.move_to(i, i + 1));
         let q2 = q.clone();
         mb.item("Remove from queue", move || q2.remove(i));
         mb.separator();
@@ -330,6 +336,12 @@ fn queue_row(t: &Track, i: usize, current: bool, queue: &Rc<MusicQueue>) -> gtk:
     });
     b.append(&menu);
     let row = gtk::ListBoxRow::builder().child(&b).build();
+    let q = Rc::downgrade(queue);
+    b.prepend(&crate::ui::widgets::reorder_handle(&row, move || i, move |from, to| {
+        if let Some(q) = q.upgrade() {
+            q.move_to(from, to);
+        }
+    }));
     row.add_css_class("music-row");
     if current {
         row.add_css_class("now-playing");

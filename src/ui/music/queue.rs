@@ -507,15 +507,20 @@ impl MusicQueue {
     /// Moves a queued track to play right after the current one.
     pub fn move_next(self: &Rc<Self>, i: usize) {
         let Some(cur) = self.index.get() else { return };
-        if i == cur || i >= self.len() {
+        self.move_to(i, if i < cur { cur } else { cur + 1 });
+    }
+
+    pub fn move_to(self: &Rc<Self>, from: usize, to: usize) {
+        if from == to || from >= self.len() || to >= self.len() {
             return;
         }
         {
             let mut list = self.tracks.borrow_mut();
-            let t = list.remove(i);
-            let cur = if i < cur { cur - 1 } else { cur };
-            list.insert(cur + 1, t);
-            self.index.set(Some(cur));
+            let t = list.remove(from);
+            list.insert(to, t);
+        }
+        if let Some(cur) = self.index.get() {
+            self.index.set(Some(crate::ui::queue::moved_index(cur, from, to)));
         }
         self.emit(Change::Queue);
     }

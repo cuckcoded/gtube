@@ -13,6 +13,8 @@ pub struct VideoItem {
     pub is_short: bool,
     /// Watch progress in 0..=1, when YouTube reports it (logged in).
     pub progress: Option<f64>,
+    /// Its entry in a playlist the user can edit (to remove or move it).
+    pub set_video_id: Option<String>,
 }
 
 impl VideoItem {
@@ -168,6 +170,18 @@ pub struct PlaylistPage {
     pub stats: Vec<String>,
     pub thumbnail: Option<String>,
     pub feed: Feed,
+    /// The user's own playlist (or Watch later).
+    pub editable: bool,
+    /// PUBLIC, UNLISTED or PRIVATE, when shown.
+    pub privacy: Option<String>,
+}
+
+/// One of the user's playlists, offered by "Save to playlist".
+#[derive(Clone, Debug)]
+pub struct SaveTarget {
+    pub id: String,
+    pub title: String,
+    pub saved: bool,
 }
 
 #[derive(Clone, Debug, Default)]

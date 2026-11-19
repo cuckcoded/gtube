@@ -85,6 +85,32 @@ impl Queue {
         self.items = original;
     }
 
+    /// Removes a video other than the playing one.
+    fn remove(&mut self, i: usize) {
+        if i == self.index || i >= self.items.len() {
+            return;
+        }
+        let v = self.items.remove(i);
+        if let Some(u) = &mut self.unshuffled
+            && let Some(p) = u.iter().position(|o| o.id == v.id)
+        {
+            u.remove(p);
+        }
+        if i < self.index {
+            self.index -= 1;
+        }
+        self.total = self.total.map(|t| t.saturating_sub(1));
+    }
+
+    fn move_to(&mut self, from: usize, to: usize) {
+        if from == to || from >= self.items.len() || to >= self.items.len() {
+            return;
+        }
+        let v = self.items.remove(from);
+        self.items.insert(to, v);
+        self.index = moved_index(self.index, from, to);
+    }
+
     fn from_panel(p: PlaylistPanel, list: &str) -> Self {
         Queue {
             title: p.title,
@@ -97,6 +123,19 @@ impl Queue {
             mix_done: !p.infinite,
             ..Default::default()
         }
+    }
+}
+
+/// Where the item at `cur` ends up when the one at `from` moves to `to`.
+pub fn moved_index(cur: usize, from: usize, to: usize) -> usize {
+    if cur == from {
+        to
+    } else if from < cur && to >= cur {
+        cur - 1
+    } else if from > cur && to <= cur {
+        cur + 1
+    } else {
+        cur
     }
 }
 
@@ -284,6 +323,8 @@ struct Row {
     title: gtk::Label,
     channel: gtk::Label,
     url: Rc<RefCell<String>>,
+    pos: Rc<Cell<u32>>,
+    menu: gtk::MenuButton,
 }
 
 impl Row {
@@ -330,17 +371,45 @@ impl Row {
         text.set_hexpand(true);
         text.append(&title);
         text.append(&channel);
+        let menu = gtk::MenuButton::builder().icon_name("view-more-symbolic").tooltip_text("More").valign(gtk::Align::Center).build();
+        menu.add_css_class("flat");
+        menu.add_css_class("circular");
         let root = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         root.add_css_class("queue-row");
+        let pos = Rc::new(Cell::new(0u32));
+        let (p, r) = (pos.clone(), root.downgrade());
+        let handle = super::widgets::reorder_handle(&root, move || p.get() as usize, move |from, to| {
+            if let Some(r) = r.upgrade() {
+                let _ = r.activate_action("queue.move", Some(&(from as u32, to as u32).to_variant()));
+            }
+        });
+        root.append(&handle);
         root.append(&num);
         root.append(&playing);
         root.append(&thumb);
         root.append(&text);
-        Row { root, num, playing, pic, duration, title, channel, url: Rc::default() }
+        root.append(&menu);
+        Row { root, num, playing, pic, duration, title, channel, url: Rc::default(), pos, menu }
     }
 
     fn bind(&self, v: &VideoItem, pos: u32, current: u32) {
         let now = pos == current;
+        self.pos.set(pos);
+        // Actions of the panel ("queue.…"), for this row's place.
+        let menu = gio::Menu::new();
+        let item = |label: &str, action: &str, target: glib::Variant| {
+            let i = gio::MenuItem::new(Some(label), None);
+            i.set_action_and_target_value(Some(action), Some(&target));
+            menu.append_item(&i);
+        };
+        if pos > 0 {
+            item("Move up", "queue.move", (pos, pos - 1).to_variant());
+        }
+        item("Move down", "queue.move", (pos, pos + 1).to_variant());
+        if !now {
+            item("Remove from queue", "queue.remove", pos.to_variant());
+        }
+        self.menu.set_menu_model(Some(&menu));
         self.num.set_text(&(pos + 1).to_string());
         self.num.set_visible(!now);
         self.playing.set_visible(now);
@@ -535,7 +604,38 @@ impl QueuePanel {
                 t.set(None);
             }
         });
+        let group = gio::SimpleActionGroup::new();
+        let w = Rc::downgrade(&this);
+        let a = gio::SimpleAction::new("move", Some(&<(u32, u32)>::static_variant_type()));
+        a.connect_activate(move |_, arg| {
+            if let (Some(t), Some((from, to))) = (w.upgrade(), arg.and_then(|a| a.get::<(u32, u32)>())) {
+                t.edit(|q| q.move_to(from as usize, to as usize));
+            }
+        });
+        group.add_action(&a);
+        let w = Rc::downgrade(&this);
+        let a = gio::SimpleAction::new("remove", Some(&u32::static_variant_type()));
+        a.connect_activate(move |_, arg| {
+            if let (Some(t), Some(i)) = (w.upgrade(), arg.and_then(|a| a.get::<u32>())) {
+                t.edit(|q| q.remove(i as usize));
+            }
+        });
+        group.add_action(&a);
+        this.widget.insert_action_group("queue", Some(&group));
         this
+    }
+
+    /// Changes the queue by hand, without scrolling or dropping a fetch.
+    fn edit(self: &Rc<Self>, f: impl FnOnce(&mut Queue)) {
+        let Some(mut q) = self.get() else { return };
+        f(&mut q);
+        self.current.set(q.index as u32);
+        // Fresh objects: rows re-bind with their new numbers.
+        let objs: Vec<glib::BoxedAnyObject> = q.items.iter().cloned().map(glib::BoxedAnyObject::new).collect();
+        self.store.splice(0, self.store.n_items(), &objs);
+        self.queue.replace(Some(q));
+        self.update_header();
+        self.changed();
     }
 
     pub fn get(&self) -> Option<Queue> {
@@ -827,6 +927,19 @@ mod tests {
         assert_eq!(ids(&q), ["a", "b", "c", "d"]);
         let mut p = Queue { items: items(&["a"]), list_id: Some("PLx".into()), ..Default::default() };
         assert_eq!(p.append(items(&["a"])), 1);
+    }
+
+    #[test]
+    fn edits_keep_the_playing_video() {
+        let mut q = Queue { items: items(&["a", "b", "c", "d"]), index: 1, total: Some(4), ..Default::default() };
+        q.move_to(3, 0);
+        assert_eq!((ids(&q), q.index), (vec!["d", "a", "b", "c"], 2));
+        q.move_to(2, 3);
+        assert_eq!((ids(&q), q.index), (vec!["d", "a", "c", "b"], 3));
+        q.remove(3);
+        assert_eq!(q.items.len(), 4, "the playing video stays");
+        q.remove(0);
+        assert_eq!((ids(&q), q.index, q.total), (vec!["a", "c", "b"], 2, Some(3)));
     }
 
     #[test]

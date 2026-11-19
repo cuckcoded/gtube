@@ -69,6 +69,7 @@ pub fn status_box(icon: &str, title: &str, desc: &str) -> (gtk::Box, gtk::Label,
 }
 
 type ActivateFn = Box<dyn Fn(usize, &[Item])>;
+type RowFn = Box<dyn Fn(&gtk::ListBoxRow, &gtk::Widget) -> gtk::Widget>;
 
 pub struct FeedView {
     pub widget: adw::BreakpointBin,
@@ -96,6 +97,8 @@ pub struct FeedView {
     pub needs_login: Cell<bool>,
     empty: RefCell<(String, String, String)>,
     on_activate: RefCell<Option<ActivateFn>>,
+    /// Builds a list row's content around its card.
+    row_fn: RefCell<Option<RowFn>>,
 }
 
 impl FeedView {
@@ -205,6 +208,7 @@ impl FeedView {
             needs_login: Cell::new(false),
             empty: RefCell::new(("view-grid-symbolic".into(), "Nothing here".into(), String::new())),
             on_activate: RefCell::new(None),
+            row_fn: RefCell::new(None),
         });
 
         let weak = Rc::downgrade(&this);
@@ -237,6 +241,29 @@ impl FeedView {
 
     pub fn connect_activate(&self, f: impl Fn(usize, &[Item]) + 'static) {
         self.on_activate.replace(Some(Box::new(f)));
+    }
+
+    pub fn connect_row(&self, f: impl Fn(&gtk::ListBoxRow, &gtk::Widget) -> gtk::Widget + 'static) {
+        self.row_fn.replace(Some(Box::new(f)));
+    }
+
+    /// Removes an item (list layout).
+    pub fn remove(&self, i: usize) {
+        if let Some(row) = self.list.row_at_index(i as i32) {
+            self.list.remove(&row);
+            self.items.borrow_mut().remove(i);
+        }
+    }
+
+    /// Moves an item (list layout).
+    pub fn move_item(&self, from: usize, to: usize) {
+        let n = self.items.borrow().len();
+        let Some(row) = self.list.row_at_index(from as i32).filter(|_| from < n && to < n) else { return };
+        self.list.remove(&row);
+        self.list.insert(&row, to as i32);
+        let mut items = self.items.borrow_mut();
+        let it = items.remove(from);
+        items.insert(to, it);
     }
 
     pub fn items(&self) -> Vec<Item> {
@@ -398,6 +425,10 @@ impl FeedView {
                 }
                 Layout::List => {
                     let row = gtk::ListBoxRow::new();
+                    let w = match self.row_fn.borrow().as_ref() {
+                        Some(f) => f(&row, &w),
+                        None => w,
+                    };
                     row.set_child(Some(&w));
                     self.list.append(&row);
                 }
