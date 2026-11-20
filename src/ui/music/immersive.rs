@@ -409,17 +409,22 @@ impl Immersive {
             return;
         }
         let wk = Rc::downgrade(self);
-        let id = glib::timeout_add_local_once(std::time::Duration::from_secs(3), move || {
-            let Some(t) = wk.upgrade() else { return };
-            t.hide_source.take();
+        // Keeps checking while paused or loading, like the player's controls.
+        let id = glib::timeout_add_local(std::time::Duration::from_secs(3), move || {
+            let Some(t) = wk.upgrade() else { return glib::ControlFlow::Break };
             let p = crate::ui::ctx().player.clone();
-            if !t.active.get() || p.is_paused() || p.current().is_none() {
-                return;
+            if t.active.get() && (p.is_paused() || p.current().is_none()) {
+                return glib::ControlFlow::Continue;
+            }
+            t.hide_source.take();
+            if !t.active.get() {
+                return glib::ControlFlow::Break;
             }
             for r in &t.chrome {
                 r.set_reveal_child(false);
             }
             t.widget.set_cursor_from_name(Some("none"));
+            glib::ControlFlow::Break
         });
         self.hide_source.replace(Some(id));
     }

@@ -159,16 +159,27 @@ pub fn open_resolved(r: Resolved) {
     }
 }
 
-/// Replaces the session cookies (sign in / out) and refreshes everything.
-pub fn apply_cookies(jar: CookieJar) {
-    if jar.is_empty() {
-        config::delete_cookies();
-    } else if let Err(e) = config::save_cookies(&jar) {
-        toast(&format!("Could not save session: {e}"));
+/// Saves a new session as an account and switches to it.
+pub fn add_account(jar: CookieJar) {
+    match config::add_account(&jar) {
+        Ok(()) => use_active_account("Signed in"),
+        Err(e) => toast(&format!("Could not save session: {e}")),
     }
-    let signed_in = jar.has_login();
-    api::client().set_cookies(jar);
-    toast(if signed_in { "Signed in" } else { "Signed out" });
+}
+
+/// Switches to a saved account ("" browses without one).
+pub fn switch_account(id: &str) {
+    if config::settings().active_account == id {
+        return;
+    }
+    config::update(|s| s.active_account = id.into());
+    use_active_account(if id.is_empty() { "Browsing without an account" } else { "Switched account" });
+}
+
+/// Loads the active account's session and refreshes everything.
+pub fn use_active_account(msg: &str) {
+    api::client().set_cookies(config::load_cookies());
+    toast(msg);
     ctx().shell.start_session();
 }
 

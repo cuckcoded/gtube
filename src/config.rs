@@ -67,6 +67,19 @@ pub struct Settings {
     pub subtitle_scale: f64,
     /// The watch page's player spans the whole width (theater mode).
     pub theater: bool,
+    /// Signed-in sessions, each in `accounts/<id>.txt`.
+    pub accounts: Vec<SavedAccount>,
+    /// The account in use; "" browses without one.
+    pub active_account: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SavedAccount {
+    pub id: String,
+    /// Learned from YouTube after signing in ("" until then).
+    pub name: String,
+    pub channel_id: Option<String>,
 }
 
 fn system_locale() -> (String, String) {
@@ -134,6 +147,8 @@ impl Default for Settings {
             subtitle_translate: false,
             subtitle_scale: 1.0,
             theater: false,
+            accounts: Vec::new(),
+            active_account: String::new(),
         }
     }
 }
@@ -167,9 +182,6 @@ pub fn cache_dir() -> PathBuf {
     d
 }
 
-pub fn cookies_path() -> PathBuf {
-    config_dir().join("cookies.txt")
-}
 
 static SETTINGS: LazyLock<RwLock<Settings>> = LazyLock::new(|| {
     let path = config_dir().join("settings.json");
@@ -192,23 +204,107 @@ pub fn update(f: impl FnOnce(&mut Settings)) {
     }
 }
 
+fn account_path(id: &str) -> PathBuf {
+    config_dir().join("accounts").join(format!("{id}.txt"))
+}
+
+/// The active account's cookies.txt (for yt-dlp), if one is in use.
+pub fn cookies_path() -> Option<PathBuf> {
+    let id = settings().active_account;
+    Some(account_path(&id)).filter(|p| !id.is_empty() && p.exists())
+}
+
 pub fn load_cookies() -> crate::api::cookies::CookieJar {
-    std::fs::read_to_string(cookies_path())
+    // Before multiple accounts, the one session lived in cookies.txt.
+    let legacy = config_dir().join("cookies.txt");
+    if let Ok(t) = std::fs::read_to_string(&legacy)
+        && add_account(&crate::api::cookies::CookieJar::parse_netscape(&t)).is_ok()
+    {
+        let _ = std::fs::remove_file(&legacy);
+    }
+    cookies_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
         .map(|t| crate::api::cookies::CookieJar::parse_netscape(&t))
         .unwrap_or_default()
 }
 
-pub fn save_cookies(jar: &crate::api::cookies::CookieJar) -> std::io::Result<()> {
+impl SavedAccount {
+    /// Whether this is the account YouTube named (by channel, else by name).
+    fn is(&self, name: &str, channel_id: Option<&str>) -> bool {
+        match (self.channel_id.as_deref(), channel_id) {
+            (_, Some(c)) => self.channel_id.as_deref() == Some(c),
+            (None, None) => !name.is_empty() && self.name == name,
+            (Some(_), None) => false,
+        }
+    }
+}
+
+/// Saves a new session and makes it the active account.
+pub fn add_account(jar: &crate::api::cookies::CookieJar) -> std::io::Result<()> {
     use std::io::Write;
+    let id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis().to_string();
+    let path = account_path(&id);
+    std::fs::create_dir_all(path.parent().unwrap())?;
     let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
+    opts.write(true).create_new(true);
     // Only readable by you (Windows and macOS keep the profile private anyway).
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-    let mut f = opts.open(cookies_path())?;
-    f.write_all(jar.to_netscape().as_bytes())
+    opts.open(&path)?.write_all(jar.to_netscape().as_bytes())?;
+    update(|s| {
+        s.accounts.push(SavedAccount { id: id.clone(), ..Default::default() });
+        s.active_account = id;
+    });
+    Ok(())
 }
 
-pub fn delete_cookies() {
-    let _ = std::fs::remove_file(cookies_path());
+/// Forgets a saved account; removing the active one leaves no account in use.
+pub fn remove_account(id: &str) {
+    let _ = std::fs::remove_file(account_path(id));
+    update(|s| {
+        s.accounts.retain(|a| a.id != id);
+        if s.active_account == id {
+            s.active_account.clear();
+        }
+    });
+}
+
+/// Names the active account once YouTube says who it is. Signing in to an
+/// account that was already saved replaces the old copy.
+pub fn remember_account(name: &str, channel_id: Option<&str>) {
+    let mut dupes = Vec::new();
+    update(|s| {
+        let active = s.active_account.clone();
+        s.accounts.retain(|a| {
+            let same = a.id != active && a.is(name, channel_id);
+            if same {
+                dupes.push(a.id.clone());
+            }
+            !same
+        });
+        if let Some(a) = s.accounts.iter_mut().find(|a| a.id == active) {
+            a.name = name.into();
+            a.channel_id = channel_id.map(Into::into);
+        }
+    });
+    for id in dupes {
+        let _ = std::fs::remove_file(account_path(&id));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SavedAccount;
+
+    #[test]
+    fn same_account() {
+        let a = SavedAccount { id: "1".into(), name: "Ann".into(), channel_id: Some("UCa".into()) };
+        assert!(a.is("Ann B", Some("UCa")));
+        assert!(!a.is("Ann", Some("UCb")));
+        assert!(!a.is("Ann", None));
+        let fresh = SavedAccount { id: "2".into(), ..Default::default() };
+        assert!(!fresh.is("", None));
+        let named = SavedAccount { id: "3".into(), name: "Bo".into(), channel_id: None };
+        assert!(named.is("Bo", None));
+    }
 }

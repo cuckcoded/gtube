@@ -64,6 +64,8 @@ pub struct Player {
     theater: Cell<bool>,
     speed_btn: gtk::MenuButton,
     quality_btn: gtk::MenuButton,
+    /// `player.quality`: the height playing.
+    quality_action: gio::SimpleAction,
     subs_btn: gtk::MenuButton,
     /// `player.subtitles`: the subtitles menu's choice.
     subs_action: gio::SimpleAction,
@@ -397,10 +399,9 @@ impl Player {
         speed_btn.set_valign(gtk::Align::Center);
         speed_btn.set_direction(gtk::ArrowType::Up);
 
+        // Filled with the heights each video comes in.
         let quality_menu = gio::Menu::new();
-        for q in ["2160", "1440", "1080", "720", "480", "360", "240", "144"] {
-            quality_menu.append(Some(&format!("{q}p")), Some(&format!("player.quality::{q}")));
-        }
+        let quality_action = gio::SimpleAction::new_stateful("quality", Some(glib::VariantTy::STRING), &s.max_quality.to_string().to_variant());
         let quality_btn = gtk::MenuButton::builder()
             .label(format!("{}p", s.max_quality))
             .menu_model(&quality_menu)
@@ -563,6 +564,7 @@ impl Player {
             theater: Cell::new(false),
             speed_btn,
             quality_btn,
+            quality_action,
             subs_btn,
             subs_action,
             highlight_btn,
@@ -826,13 +828,8 @@ impl Player {
             }
         });
         group.add_action(&speed);
-        let quality = gio::SimpleAction::new_stateful(
-            "quality",
-            Some(glib::VariantTy::STRING),
-            &self.quality.get().to_string().to_variant(),
-        );
         let wr = w.clone();
-        quality.connect_activate(move |a, param| {
+        self.quality_action.connect_activate(move |a, param| {
             let Some(v) = param.and_then(|v| v.get::<String>()) else { return };
             a.set_state(&v.to_variant());
             if let (Some(p), Ok(q)) = (wr.upgrade(), v.parse::<u32>()) {
@@ -841,7 +838,7 @@ impl Player {
                 p.reload_current();
             }
         });
-        group.add_action(&quality);
+        group.add_action(&self.quality_action);
         let wr = w.clone();
         self.subs_action.connect_activate(move |_, param| {
             if let (Some(p), Some(key)) = (wr.upgrade(), param.and_then(|v| v.get::<String>())) {
@@ -1554,12 +1551,11 @@ impl Player {
         self.mpv.command(&["stop"]).ok();
         self.error_box.set_visible(false);
         self.spinner.set_visible(true);
-        let logged_in = api::client().is_logged_in() && config::cookies_path().exists();
         let req = extract::Request {
             ytdlp,
             url: url.to_string(),
             format: extract::format_string(audio_only, self.quality.get()),
-            cookies: logged_in.then(config::cookies_path),
+            cookies: config::cookies_path().filter(|_| api::client().is_logged_in()),
         };
         let w = Rc::downgrade(self);
         runtime::spawn_local(async move {
@@ -1636,6 +1632,7 @@ impl Player {
         }
         self.update_audio_filter();
         self.set_captions(streams.captions.clone(), false);
+        self.set_qualities(&streams.heights, streams.height);
         let video = self.shows_video() && self.mpv.has_render_context();
         self.mpv.set_str("vid", if video { "auto" } else { "no" });
         let mut opts = Vec::new();
@@ -1666,9 +1663,25 @@ impl Player {
         } else if self.sub_choice.borrow().is_none() {
             self.sub_choice.replace(Some(self.wanted_subtitles(&c)));
         }
-        self.subs_btn.set_menu_model(Some(&subtitles::menu(&c)));
+        let s = config::settings();
+        self.subs_btn.set_menu_model(Some(&subtitles::menu(&c, &[&s.subtitle_lang, &s.language])));
         self.captions.replace(c);
         self.sync_subs_ui();
+    }
+
+    /// The quality menu lists the heights this video comes in; the button
+    /// shows the one playing.
+    fn set_qualities(&self, heights: &[u32], playing: Option<u32>) {
+        let Some(menu) = self.quality_btn.menu_model().and_downcast::<gio::Menu>() else { return };
+        menu.remove_all();
+        for h in heights {
+            menu.append(Some(&format!("{h}p")), Some(&format!("player.quality::{h}")));
+        }
+        self.quality_btn.set_sensitive(!heights.is_empty());
+        if let Some(h) = playing {
+            self.quality_btn.set_label(&format!("{h}p"));
+            self.quality_action.set_state(&h.to_string().to_variant());
+        }
     }
 
     /// What the settings ask for.
@@ -2319,18 +2332,23 @@ impl Player {
             id.remove();
         }
         let w = Rc::downgrade(self);
-        let id = glib::timeout_add_local_once(std::time::Duration::from_millis(2500), move || {
-            let Some(p) = w.upgrade() else { return };
-            p.hide_source.take();
-            if p.paused.get() || p.current.borrow().is_none() {
-                return;
+        // Keeps checking while paused or loading: not every path back to
+        // playing (mode switches, loads) shows the controls again.
+        let id = glib::timeout_add_local(std::time::Duration::from_millis(2500), move || {
+            let Some(p) = w.upgrade() else { return glib::ControlFlow::Break };
+            // Hiding the controls would also close an open menu.
+            let menu_open = [&p.speed_btn, &p.quality_btn, &p.subs_btn].iter().any(|b| b.is_active());
+            if p.mode.get() != Mode::Hidden && (p.paused.get() || p.current.borrow().is_none() || menu_open) {
+                return glib::ControlFlow::Continue;
             }
+            p.hide_source.take();
             p.bottom.set_reveal_child(false);
             p.top.set_reveal_child(false);
             p.mini_controls.set_opacity(0.0);
             if p.mode.get() == Mode::Fullscreen {
                 p.host.set_cursor_from_name(Some("none"));
             }
+            glib::ControlFlow::Break
         });
         self.hide_source.replace(Some(id));
     }

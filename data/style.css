@@ -100,6 +100,11 @@ flowboxchild.card-child:hover {
   color: white;
 }
 /* Subtitles are on: the button gets a bar under it, like on youtube.com. */
+/* The bar's menus are popovers with the normal colors. */
+.player-bar popover label,
+.player-bar popover image {
+  color: inherit;
+}
 .player-bar menubutton.subs-on > button {
   box-shadow: inset 0 -3px 0 -1px @accent_bg_color;
 }

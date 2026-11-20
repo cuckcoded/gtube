@@ -114,9 +114,9 @@ impl Downloads {
         if !playlist {
             args.push("--no-playlist".into());
         }
-        if crate::api::client().is_logged_in() && config::cookies_path().exists() {
+        if let Some(path) = config::cookies_path().filter(|_| crate::api::client().is_logged_in()) {
             args.push("--cookies".into());
-            args.push(config::cookies_path().to_string_lossy().into_owned());
+            args.push(path.to_string_lossy().into_owned());
         }
         let kind;
         if opts.audio_only {

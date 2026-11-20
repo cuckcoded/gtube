@@ -13,10 +13,11 @@ use gtk::{gio, glib};
 pub fn show() {
     let body = format!(
         "Signing in makes your home feed, subscriptions, history and playlists the same as on youtube.com. \
-         The session is stored only on this computer ({}).",
-        config::cookies_path().display()
+         The session is stored only on this computer ({}). You can add more accounts and switch between them from the account menu.",
+        config::config_dir().join("accounts").display()
     );
-    let d = adw::AlertDialog::new(Some("Sign in to YouTube"), Some(&body));
+    let title = if crate::api::client().is_logged_in() { "Add a YouTube account" } else { "Sign in to YouTube" };
+    let d = adw::AlertDialog::new(Some(title), Some(&body));
     d.add_response("cancel", "Cancel");
     d.add_response("file", "cookies.txt…");
     d.add_response("browser", "From browser…");
@@ -50,7 +51,7 @@ fn finish(jar: CookieJar) {
         super::toast("No signed-in YouTube session found in those cookies");
         return;
     }
-    super::apply_cookies(jar);
+    super::add_account(jar);
 }
 
 fn file_import() {
@@ -149,29 +150,22 @@ fn run_browser_import(spec: String) {
 
 #[cfg(feature = "webkit")]
 thread_local! {
-    // One WebKit session for the app's lifetime. A per-window session died
-    // with the window, which the cookie callback itself closes; the finished
-    // request then released the last reference to the session's cookie
-    // manager and WebKit crashed (SIGSEGV on every successful sign-in).
-    static WEBKIT_SESSION: std::cell::OnceCell<webkit::NetworkSession> = const { std::cell::OnceCell::new() };
+    // Sessions live as long as the app. A per-window session died with the
+    // window, which the cookie callback itself closes; the finished request
+    // then released the last reference to the session's cookie manager and
+    // WebKit crashed (SIGSEGV on every successful sign-in).
+    static WEBKIT_SESSIONS: std::cell::RefCell<Vec<webkit::NetworkSession>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
+/// A new, empty WebKit session, so each sign-in can pick a different
+/// Google account. Nothing is written to disk: the account's cookies are
+/// kept in its own file.
+// shortcut: keeps one small session object per sign-in until exit; fine for a handful of sign-ins.
 #[cfg(feature = "webkit")]
 fn webkit_session() -> webkit::NetworkSession {
-    WEBKIT_SESSION.with(|cell| {
-        cell.get_or_init(|| {
-            let data = config::data_dir().join("webkit");
-            let cache = config::cache_dir().join("webkit");
-            let session = webkit::NetworkSession::new(data.to_str(), cache.to_str());
-            if let Some(cm) = session.cookie_manager()
-                && let Some(p) = data.join("cookies.sqlite").to_str()
-            {
-                cm.set_persistent_storage(p, webkit::CookiePersistentStorage::Sqlite);
-            }
-            session
-        })
-        .clone()
-    })
+    let session = webkit::NetworkSession::new_ephemeral();
+    WEBKIT_SESSIONS.with(|v| v.borrow_mut().push(session.clone()));
+    session
 }
 
 #[cfg(feature = "webkit")]
@@ -273,25 +267,13 @@ fn soup_to_jar(list: Vec<webkit::soup::Cookie>) -> CookieJar {
     CookieJar::from_cookies(cookies)
 }
 
-/// Forgets the session everywhere (our cookie file and the WebKit profile).
+/// Forgets the active account and browses without one.
 pub fn sign_out() {
     crate::log::info("signing out");
-    config::delete_cookies();
-    #[cfg(feature = "webkit")]
-    if let Some(session) = WEBKIT_SESSION.with(|c| c.get().cloned()) {
-        // The session is open: clear it through WebKit rather than deleting
-        // files underneath it.
-        if let Some(dm) = session.website_data_manager() {
-            dm.clear(webkit::WebsiteDataTypes::ALL, glib::TimeSpan(0), None::<&gio::Cancellable>, |r| {
-                if let Err(e) = r {
-                    crate::log::warn(&format!("sign-out: clearing WebKit data failed: {e}"));
-                }
-            });
-        }
-        super::apply_cookies(CookieJar::default());
-        return;
-    }
+    let id = config::settings().active_account;
+    config::remove_account(&id);
+    // Older versions kept a WebKit profile on disk.
     let _ = std::fs::remove_dir_all(config::data_dir().join("webkit"));
     let _ = std::fs::remove_dir_all(config::cache_dir().join("webkit"));
-    super::apply_cookies(CookieJar::default());
+    super::use_active_account("Signed out");
 }

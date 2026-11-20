@@ -81,7 +81,7 @@ pub fn show() {
     let acc_row = adw::ActionRow::builder()
         .title(if logged_in { "Signed in" } else { "Not signed in" })
         .subtitle(if logged_in {
-            format!("Your YouTube session is stored in {}", config::cookies_path().display())
+            format!("Your YouTube session is stored in {}", config::cookies_path().unwrap_or_default().display())
         } else {
             "Sign in to see your own feed, subscriptions and history".to_string()
         })

@@ -112,8 +112,25 @@ fn label(s: &str) -> String {
     s.replace('_', "__")
 }
 
-/// The subtitles menu (items activate `player.subtitles`).
-pub fn menu(c: &Captions) -> gio::Menu {
+/// The translations into `langs` (the languages you use), in that order.
+fn suggested<'a>(c: &'a Captions, langs: &[&str]) -> Vec<&'a (String, String)> {
+    let mut out: Vec<&(String, String)> = Vec::new();
+    for lang in langs.iter().filter(|l| !l.is_empty()) {
+        let found = c
+            .translations
+            .iter()
+            .find(|(code, _)| code.eq_ignore_ascii_case(lang))
+            .or_else(|| c.translations.iter().find(|(code, _)| primary(code) == primary(lang)));
+        if let Some(t) = found.filter(|t| !out.contains(t)) {
+            out.push(t);
+        }
+    }
+    out
+}
+
+/// The subtitles menu (items activate `player.subtitles`). Auto-translate
+/// starts with the languages in `langs`.
+pub fn menu(c: &Captions, langs: &[&str]) -> gio::Menu {
     let menu = gio::Menu::new();
     let off = gio::Menu::new();
     off.append(Some("Off"), Some(&format!("player.subtitles::{}", Choice::Off.key())));
@@ -124,13 +141,19 @@ pub fn menu(c: &Captions) -> gio::Menu {
     }
     menu.append_section(None, &tracks);
     if !c.tracks.is_empty() && !c.translations.is_empty() {
+        let section = |list: Vec<&(String, String)>| {
+            let m = gio::Menu::new();
+            for (code, name) in list {
+                m.append(Some(&label(name)), Some(&format!("player.subtitles::x:{code}")));
+            }
+            m
+        };
         let languages = gio::Menu::new();
-        for (code, name) in &c.translations {
-            languages.append(Some(&label(name)), Some(&format!("player.subtitles::x:{code}")));
-        }
-        let section = gio::Menu::new();
-        section.append_submenu(Some("Auto-translate"), &languages);
-        menu.append_section(None, &section);
+        languages.append_section(None, &section(suggested(c, langs)));
+        languages.append_section(None, &section(c.translations.iter().collect()));
+        let more = gio::Menu::new();
+        more.append_submenu(Some("Auto-translate"), &languages);
+        menu.append_section(None, &more);
     }
     menu
 }
@@ -184,5 +207,14 @@ mod tests {
         let s = Choice::Translate { from: 1, to: "it".into() }.source(&c).unwrap();
         assert_eq!(s.url, "https://www.youtube.com/api/timedtext?lang=ja&fmt=vtt&tlang=it");
         assert_eq!((s.title.as_str(), s.lang.as_str()), ("it (auto-translated)", "it"));
+    }
+
+    #[test]
+    fn suggests_your_languages() {
+        let c = captions(&[("en", true)], &["af", "de", "it", "pt-BR", "pt-PT"]);
+        let codes = |langs: &[&str]| suggested(&c, langs).iter().map(|(code, _)| code.as_str()).collect::<Vec<_>>();
+        assert_eq!(codes(&["pt-PT", "it"]), ["pt-PT", "it"]);
+        assert_eq!(codes(&["pt", "", "it", "it-CH"]), ["pt-BR", "it"]);
+        assert!(codes(&["ja"]).is_empty());
     }
 }

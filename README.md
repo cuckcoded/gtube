@@ -2,7 +2,8 @@
 
 A native GTK4 / libadwaita YouTube client written in Rust.
 
-- **Your YouTube:** sign in and get the same home feed, subscriptions, history, playlists, Watch later and liked videos as on youtube.com. Like, dislike and subscribe from the app.
+- **Your YouTube:** sign in and get the same home feed, subscriptions, history, playlists, Watch later and liked videos as on youtube.com. Like, dislike and subscribe from the app. Add several accounts and switch between them from the account menu, or pick "No account" to browse signed out.
+- **Trending:** what's popular in Music, Gaming, News, Sports, Live and Fashion & Beauty (YouTube's Explore pages, which replaced its Trending page). It's where GTube opens when you aren't signed in, since YouTube's home feed is empty then.
 - **No ads:** videos play straight from the media streams, so video ads are never fetched. Promoted results, ad slots and banners are removed from every feed.
 - **No Shorts:** they're removed from feeds, search, Up next and channel pages. A Shorts link still opens in the normal player, like any other video.
 - **SponsorBlock:** segments are skipped automatically (with Undo) or marked in the seek bar, per category, and highlights get a marker and a "Jump to highlight" button. You can **submit segments** too: press `;` (or the shield button in the player) where one starts and again where it ends, check it in the dialog (Preview), pick the category and submit. Submissions go to an anonymous ID that GTube makes once and keeps in its settings.
@@ -15,7 +16,7 @@ A native GTK4 / libadwaita YouTube client written in Rust.
 - **Playlists and mixes:** a playlist plays as a queue next to the video, all of it (long ones load as they play), with loop and shuffle; Play all / Shuffle on playlist pages. Mixes (the endless "Mix – …" lists) show up in search and play as queues that keep going. Every video has Play next, Add to queue and Start mix in its menu, and the player gets previous / next buttons (Shift+P / Shift+N). `watch?v=…&list=…` links open with their playlist or mix. Drag a queue's videos by their grip to reorder them, or use their ⋮ menu to move or remove them (also in the Music queue).
 - **Your playlists:** save any video to your playlists, or to a new one, from its menu or the Save button on the watch page. On your own playlists' pages, drag videos to reorder them, remove them, and edit the name, description and visibility (public, unlisted, private).
 - **Picks up where you left off:** GTube reports what you watch to YouTube the way youtube.com does, so your watch history shows how far you got. Videos you watched part of, here or on any other device, continue from where YouTube says you stopped (with "Start over" in the notification). Needs signing in; both can be turned off in Settings → Playback.
-- **Pages** for watching (description, comments with replies, Up next, playlist queue), channels, playlists, search, and your own profile ("You"). They make use of big screens: the player grows to fill the window's height, grids get more columns, and the Music pages get wider with bigger artwork. The window opens at the size it last had. Feed chips (All, Music, Gaming…) filter the feed; click the selected one again to go back to everything. The refresh button in the header (or Ctrl+R) reloads Home, Subscriptions, You and search results, keeping the selected chip.
+- **Pages** for watching (description, comments with replies, Up next, playlist queue), channels, playlists, search, and your own profile ("You"). They make use of big screens: the player grows to fill the window's height, grids get more columns, and the Music pages get wider with bigger artwork. The window opens at the size it last had. Feed chips (All, Music, Gaming…) filter the feed; click the selected one again to go back to everything. The refresh button in the header (or Ctrl+R) reloads Home, Subscriptions, Trending, You and search results, keeping the selected chip.
 - **YouTube Music mode:** switch with the YouTube | Music buttons at the top of the sidebar (or Ctrl+M). It works like music.youtube.com:
   - Home with mood chips and quick picks; Explore (new releases, charts, moods & genres); your Library (playlists, songs, albums, artists, subscriptions, history) and playlists in the sidebar.
   - Search with suggestions, a top result and filters (songs, videos, albums, artists, playlists, episodes…), plus artist, album and playlist pages.
@@ -26,6 +27,13 @@ A native GTK4 / libadwaita YouTube client written in Rust.
   - **Ambient color:** the window is tinted with the colors of the album art that is playing. **Spectrum visualizer:** the music's spectrum moves behind the player bar, in sync with what you hear. Both can be turned off in Settings → Playback → YouTube Music. The visualizer analyses the audio inside mpv (about 2% of one CPU core); GTube checks once per run that the installed FFmpeg has the filters it uses, and otherwise leaves it off.
   - Music plays in the background while you browse. Switch back to YouTube and it continues in the miniplayer.
   - `music.youtube.com` links open in Music mode. The mode you used last is remembered.
+
+## Screenshots
+
+![Trending](images/image1.png)
+![YouTube Music home](images/image2.png)
+![Watching a video](images/image3.png)
+![Music immersive view with lyrics](images/image4.png)
 
 ## Download
 
@@ -78,7 +86,7 @@ Open **Sign in** in the sidebar or account menu. There are three ways:
 2. **From browser:** copies your existing youtube.com session out of Firefox, Chrome, Chromium, Brave, Edge, … (uses `yt-dlp --cookies-from-browser`).
 3. **cookies.txt:** import a Netscape cookies file exported by a browser extension.
 
-Only youtube.com cookies are kept. They're stored in `~/.config/gtube/cookies.txt` (mode 600), and signing out deletes them.
+Only youtube.com cookies are kept. Each account's are stored in `~/.config/gtube/accounts/` (mode 600). **Add account…** in the account menu signs in another one; **Sign out** deletes the active account's cookies and leaves the others.
 
 GTube talks to YouTube the way the website does, so your recommendations, history and subscriptions stay in sync. A third-party client is still against YouTube's terms of service; it's very unlikely to cause problems, but use it knowing that.
 

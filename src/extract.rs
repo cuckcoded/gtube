@@ -20,6 +20,10 @@ pub struct Streams {
     /// Unix time (seconds) before which the stream URLs are refused.
     pub available_at: Option<f64>,
     pub captions: Captions,
+    /// The video heights there are formats for, tallest first.
+    pub heights: Vec<u32>,
+    /// The height of the video picked.
+    pub height: Option<u32>,
 }
 
 /// A video's subtitles, as yt-dlp lists them.
@@ -142,7 +146,16 @@ pub fn parse(v: &Value) -> Result<Streams> {
         .chain(std::iter::once(&v))
         .filter_map(|f| f.get("available_at").and_then(Value::as_f64))
         .reduce(f64::max);
-    Ok(Streams { url, user_agent, available_at, captions: parse_captions(v) })
+    let height = |f: &Value| {
+        // Storyboards (thumbnail sheets) have a height too.
+        let video = f.get("vcodec").and_then(Value::as_str).is_none_or(|c| c != "none") && f.get("ext").and_then(Value::as_str) != Some("mhtml");
+        f.get("height").and_then(Value::as_u64).filter(|_| video).map(|h| h as u32)
+    };
+    let mut heights: Vec<u32> = v.get("formats").and_then(Value::as_array).into_iter().flatten().filter_map(height).collect();
+    heights.sort_unstable_by(|a, b| b.cmp(a));
+    heights.dedup();
+    let height = formats.iter().find_map(|f| height(f));
+    Ok(Streams { url, user_agent, available_at, captions: parse_captions(v), heights, height })
 }
 
 /// A subtitle format's URL, if it is one of YouTube's timedtext URLs (yt-dlp
@@ -265,6 +278,20 @@ mod tests {
         assert_eq!(c.tracks[0].url, tt("lang=en"));
         assert_eq!(c.tracks[2].vtt_url(Some("pt-BR")), tt("lang=en&kind=asr") + "&fmt=vtt&tlang=pt-BR");
         assert_eq!(parse(&serde_json::json!({"url": "u"})).unwrap().captions, Captions::default());
+    }
+
+    #[test]
+    fn lists_heights() {
+        let v = serde_json::json!({
+            "formats": [
+                {"vcodec": "none", "height": null}, {"vcodec": "avc1", "height": 360}, {"vcodec": "vp9", "height": 1080},
+                {"vcodec": "avc1", "height": 1080}, {"vcodec": "none", "acodec": "none", "ext": "mhtml", "height": 90}, {"vcodec": "none", "acodec": "opus"},
+            ],
+            "requested_formats": [{"url": "v", "vcodec": "vp9", "height": 1080}, {"url": "a", "vcodec": "none"}],
+        });
+        let s = parse(&v).unwrap();
+        assert_eq!(s.heights, [1080, 360]);
+        assert_eq!(s.height, Some(1080));
     }
 
     #[test]

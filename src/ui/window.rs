@@ -35,6 +35,8 @@ pub struct Shell {
     home_page: adw::NavigationPage,
     subs: Rc<FeedView>,
     subs_page: adw::NavigationPage,
+    trending: Rc<FeedView>,
+    trending_page: adw::NavigationPage,
     pub library: Rc<Library>,
     downloads_page: adw::NavigationPage,
     search_feed: Rc<FeedView>,
@@ -48,9 +50,20 @@ pub struct Shell {
     selecting: Cell<bool>,
 }
 
+/// YouTube's Explore pages, which replaced its Trending page in 2025.
+const TRENDING: &[(&str, &str)] = &[
+    ("Music", "UC-9-kyTW8ZkZNDHQJ6FgpwQ"),
+    ("Gaming", "UCOpNcN46UbXVtpKMrmU4Abg"),
+    ("News", "UCYfdidRxbB8Qhf0Nx7ioOYw"),
+    ("Sports", "UCEgdi0XIXXZ-qJOFPf4JSKw"),
+    ("Live", "UC4R8DWoMoI7CAwX8_LjQHig"),
+    ("Fashion & Beauty", "UCrpQ4p1Ql_hG8rKXIKM1MOQ"),
+];
+
 const NAV_ITEMS: &[(&str, &str, &str)] = &[
     ("home", "Home", "go-home-symbolic"),
     ("subs", "Subscriptions", "gtube-subscriptions-symbolic"),
+    ("trending", "Trending", "gtube-explore-symbolic"),
     ("-", "", ""),
     ("you", "You", "avatar-default-symbolic"),
     ("history", "History", "document-open-recent-symbolic"),
@@ -106,6 +119,11 @@ impl Shell {
         subs.needs_login.set(true);
         subs.set_empty_state("gtube-subscriptions-symbolic", "No new videos", "Videos from channels you subscribe to show up here.");
         let subs_page = adw::NavigationPage::builder().title("Subscriptions").tag("subs").child(&subs.widget).build();
+        let trending = FeedView::new(Source::Browse { id: TRENDING[0].1.into(), params: None }, Layout::Grid);
+        trending.set_empty_state("gtube-explore-symbolic", "Nothing here right now", "Try another category.");
+        let trending_page = adw::NavigationPage::builder().title("Trending").tag("trending").child(&trending.widget).build();
+        let categories = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        trending.header.append(&categories);
         let library = Library::new();
 
         let search_feed = FeedView::new(Source::Empty, Layout::Grid);
@@ -271,6 +289,8 @@ impl Shell {
             home_page,
             subs,
             subs_page,
+            trending,
+            trending_page,
             library,
             downloads_page: downloads.clone(),
             search_feed,
@@ -283,9 +303,32 @@ impl Shell {
             selecting: Cell::new(false),
         });
         this.build_filters(&filters);
+        this.build_categories(&categories);
         this.connect(back, refresh, side_user_btn, settings_btn, watch);
         this.update_account_menu();
         (this, toasts)
+    }
+
+    fn build_categories(self: &Rc<Self>, b: &gtk::Box) {
+        let mut group: Option<gtk::ToggleButton> = None;
+        for (label, id) in TRENDING {
+            let t = gtk::ToggleButton::with_label(label);
+            t.add_css_class("chip");
+            match &group {
+                Some(g) => t.set_group(Some(g)),
+                None => {
+                    t.set_active(true);
+                    group = Some(t.clone());
+                }
+            }
+            let w = Rc::downgrade(self);
+            t.connect_toggled(move |t| {
+                if let (true, Some(s)) = (t.is_active(), w.upgrade()) {
+                    s.trending.set_source(Source::Browse { id: (*id).into(), params: None });
+                }
+            });
+            b.append(&t);
+        }
     }
 
     fn build_filters(self: &Rc<Self>, b: &gtk::Box) {
@@ -438,6 +481,13 @@ impl Shell {
         add("settings", || super::settings::show());
         add("signin", || super::login::show());
         add("signout", || super::login::sign_out());
+        let account = gio::SimpleAction::new_stateful("account", Some(glib::VariantTy::STRING), &config::settings().active_account.to_variant());
+        account.connect_activate(|_, id| {
+            if let Some(id) = id.and_then(|v| v.get::<String>()) {
+                super::switch_account(&id);
+            }
+        });
+        win.add_action(&account);
         add("downloads", || super::ctx().shell.go("downloads"));
         add("you", || super::ctx().shell.go("you"));
         add("about", about);
@@ -813,6 +863,10 @@ impl Shell {
                 self.subs.ensure_loaded();
                 self.subs_page.clone()
             }
+            "trending" => {
+                self.trending.ensure_loaded();
+                self.trending_page.clone()
+            }
             "you" | "history" | "playlists" | "later" | "liked" | "channels" => {
                 self.library.show_tab(if id == "you" { "history" } else { id });
                 self.library.page.clone()
@@ -861,7 +915,7 @@ impl Shell {
         if changed {
             self.suggest.popdown();
             if !music && self.nav.visible_page().is_none() {
-                self.go("home");
+                self.go(if api::client().is_logged_in() { "home" } else { "trending" });
             }
         }
     }
@@ -869,7 +923,7 @@ impl Shell {
     /// Whether the page on screen can be refreshed (Ctrl+R, the header's button).
     fn can_refresh(&self) -> bool {
         let Some(page) = self.nav.visible_page() else { return false };
-        [&self.home_page, &self.subs_page, &self.library.page, &self.search_page].contains(&&page)
+        [&self.home_page, &self.subs_page, &self.trending_page, &self.library.page, &self.search_page].contains(&&page)
     }
 
     fn refresh_current(&self) {
@@ -882,6 +936,8 @@ impl Shell {
             self.home.refresh();
         } else if page.as_ref() == Some(&self.subs_page) {
             self.subs.refresh();
+        } else if page.as_ref() == Some(&self.trending_page) {
+            self.trending.refresh();
         } else if page.as_ref() == Some(&self.library.page) {
             self.library.reset();
         } else if page.as_ref() == Some(&self.search_page) {
@@ -894,6 +950,7 @@ impl Shell {
     pub fn start_session(self: &Rc<Self>) {
         self.home.invalidate();
         self.subs.invalidate();
+        self.trending.invalidate();
         self.library.reset();
         self.set_account(None);
         self.music.start_session();
@@ -914,10 +971,16 @@ impl Shell {
                 }
             }
             let visible = s.nav.visible_page();
-            if visible.as_ref() == Some(&s.home_page) || visible.is_none() {
+            let home = visible.as_ref() == Some(&s.home_page) || visible.is_none();
+            if home && !api::client().is_logged_in() && !s.is_music() {
+                // Without an account YouTube's home feed is empty.
+                s.go("trending");
+            } else if home {
                 s.home.ensure_loaded();
             } else if visible.as_ref() == Some(&s.subs_page) {
                 s.subs.ensure_loaded();
+            } else if visible.as_ref() == Some(&s.trending_page) {
+                s.trending.ensure_loaded();
             } else if visible.as_ref() == Some(&s.library.page) {
                 s.library.reset();
             }
@@ -944,6 +1007,9 @@ impl Shell {
                 self.side_name.set_text(if logged_in { "Signed in" } else { "Sign in" });
             }
         }
+        if let Some(a) = &acc {
+            config::remember_account(&a.name, a.channel_id.as_deref());
+        }
         self.library.set_account(acc.as_ref());
         self.music.set_account(acc.as_ref());
         self.account.replace(acc);
@@ -953,15 +1019,31 @@ impl Shell {
     fn update_account_menu(&self) {
         let m = &self.account_menu;
         m.remove_all();
+        let settings = config::settings();
+        if let Some(a) = self.window.lookup_action("account").and_downcast::<gio::SimpleAction>() {
+            a.set_state(&settings.active_account.to_variant());
+        }
         let top = gio::Menu::new();
         if api::client().is_logged_in() {
             let name = self.account.borrow().as_ref().map(|a| a.name.clone()).unwrap_or_else(|| "Your account".into());
             top.append(Some(&name), Some("win.you"));
-        } else {
-            top.append(Some("Sign in…"), Some("win.signin"));
         }
         top.append(Some("Downloads"), Some("win.downloads"));
         m.append_section(None, &top);
+        let accounts = gio::Menu::new();
+        let item = |label: &str, id: &str| {
+            let it = gio::MenuItem::new(Some(label), None);
+            it.set_action_and_target_value(Some("win.account"), Some(&id.to_variant()));
+            accounts.append_item(&it);
+        };
+        for (i, a) in settings.accounts.iter().enumerate() {
+            item(&if a.name.is_empty() { format!("Account {}", i + 1) } else { a.name.clone() }, &a.id);
+        }
+        if !settings.accounts.is_empty() {
+            item("No account", "");
+        }
+        accounts.append(Some(if settings.accounts.is_empty() { "Sign in…" } else { "Add account…" }), Some("win.signin"));
+        m.append_section(Some("Accounts"), &accounts);
         let modes = gio::Menu::new();
         modes.append(Some("YouTube"), Some("win.mode::video"));
         modes.append(Some("YouTube Music"), Some("win.mode::music"));

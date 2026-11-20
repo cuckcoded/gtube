@@ -80,10 +80,6 @@ impl CookieJar {
         self.cookies.retain(|c| f(c));
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.cookies.is_empty()
-    }
-
     fn domain_matches(cookie_domain: &str, host: &str) -> bool {
         let d = cookie_domain.trim_start_matches('.');
         host == d || host.ends_with(&format!(".{d}"))
